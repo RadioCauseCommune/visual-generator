@@ -2,6 +2,12 @@
 
 Générateur d'assets visuels pour Radio Cause Commune - Création de visuels pour toutes les plateformes sociales avec génération d'images IA (FLUX.1-schnell).
 
+![Interface Globale](assets/interface-globale.png)
+*Interface principale de création*
+
+![Générateur de Voeux](assets/interface-voeux.png)
+*Outil dédié à la génération de cartes de voeux pour les fêtes*
+
 ## ✨ Fonctionnalités
 
 - 🎯 **27 formats optimisés** pour Instagram, Facebook, Twitter/X, LinkedIn, YouTube, TikTok, Pinterest et Podcast
