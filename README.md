@@ -22,8 +22,8 @@ Générateur d'assets visuels pour Radio Cause Commune - Création de visuels po
 
 ```bash
 # 1. Cloner le projet
-git clone https://github.com/votre-compte/cause-commune-visual-generator.git
-cd cause-commune-visual-generator
+git clone https://github.com/RadioCauseCommune/visual-generator.git
+cd visual-generator
 
 # 2. Installer les dépendances
 npm install
