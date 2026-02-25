@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  visual-generator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
+        - VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY}
+    image: cause-commune/visual-generator:latest
+    container_name: cc-visual-generator
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - HOST=0.0.0.0
+      - HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN}
+      - REPLICATE_API_TOKEN=${REPLICATE_API_TOKEN}
+      - ALLOWED_ORIGINS=http://localhost:3000,https://votre-domaine.radio
+    env_file:
+      - .env.local

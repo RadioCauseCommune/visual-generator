@@ -1,0 +1,73 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Radio Cause Commune - Asset Generator</title>
+    <!-- html-to-image est maintenant installé localement -->
+    <!-- 
+    POLICES LOCALES ACTIVÉES via @fontsource dans fonts.ts
+    Les polices sont maintenant hébergées localement, ce qui résout les problèmes d'export PNG
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&family=Roboto+Condensed:wght@700;800;900&family=Syne:wght@700;800;900&family=Permanent+Marker&family=Special+Elite&family=Bungee&family=Rock+Salt&family=Anton&family=Space+Grotesk:wght@700&family=Lexend+Zetta:wght@900&family=Archivo+Black&family=Ultra&family=UnifrakturMaguntia&family=VT323&display=block" rel="stylesheet">
+    -->
+    <style>
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: #FFFAE5;
+            color: #0f0f0f;
+            background-image: url("https://www.transparenttextures.com/patterns/natural-paper.png");
+            background-repeat: repeat;
+        }
+        .font-syne { font-family: 'Syne', sans-serif; }
+        .font-roboto-condensed { font-family: 'Roboto Condensed', sans-serif; }
+        .neo-shadow-sm { box-shadow: 3px 3px 0px 0px #0f0f0f; }
+        .neo-shadow { box-shadow: 6px 6px 0px 0px #0f0f0f; }
+        .neo-shadow-lg { box-shadow: 10px 10px 0px 0px #0f0f0f; }
+        .neo-border { border: 3px solid #0f0f0f; }
+        .neo-border-fine { border: 2px solid #0f0f0f; }
+        .neo-active:active { transform: translate(2px, 2px); box-shadow: 0px 0px 0px 0px #0f0f0f; }
+        .neo-hover:hover { transform: translate(-2px, -2px); box-shadow: 8px 8px 0px 0px #0f0f0f; }
+        
+        /* Scratch effect filter */
+        .scratch-effect {
+          filter: url(#scratch-filter);
+        }
+
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 12px; }
+        ::-webkit-scrollbar-track { background: #FFFAE5; border-left: 3px solid #0f0f0f; }
+        ::-webkit-scrollbar-thumb { background: #D20A33; border: 3px solid #0f0f0f; }
+        
+        /* Force le rendu des polices pour html-to-image */
+        * {
+          -webkit-font-smoothing: antialiased;
+          -moz-osx-font-smoothing: grayscale;
+          text-rendering: optimizeLegibility;
+        }
+        
+        /* Force le rendu des polices pour html-to-image */
+        * {
+          -webkit-font-smoothing: antialiased;
+          -moz-osx-font-smoothing: grayscale;
+          text-rendering: optimizeLegibility;
+        }
+    </style>
+</head>
+<body>
+    <!-- SVG Filter for Scratch Effect -->
+    <svg style="position: absolute; width: 0; height: 0;" aria-hidden="true" focusable="false">
+      <defs>
+        <filter id="scratch-filter">
+          <feTurbulence type="fractalNoise" baseFrequency="0.5" numOctaves="3" result="noise" />
+          <feDisplacementMap in="SourceGraphic" in2="noise" scale="2" />
+        </filter>
+      </defs>
+    </svg>
+    <div id="root"></div>
+<script type="module" src="/index.tsx"></script>
+</body>
+</html>

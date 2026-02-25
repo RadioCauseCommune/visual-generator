@@ -1,0 +1,122 @@
+@import "tailwindcss";
+
+body {
+  font-family: 'Roboto', sans-serif;
+  background-color: #FFFAE5;
+  color: #0f0f0f;
+  background-image: url("https://www.transparenttextures.com/patterns/natural-paper.png");
+  background-repeat: repeat;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: #FFFAE5;
+  border-left: 3px solid #0f0f0f;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #D20A33;
+  border: 3px solid #0f0f0f;
+}
+
+/* Force le rendu des polices pour html-to-image */
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Neo-brutalist styles */
+.neo-shadow-sm {
+  box-shadow: 3px 3px 0px 0px #0f0f0f;
+}
+
+.neo-shadow {
+  box-shadow: 6px 6px 0px 0px #0f0f0f;
+}
+
+.neo-shadow-lg {
+  box-shadow: 10px 10px 0px 0px #0f0f0f;
+}
+
+.neo-border {
+  border: 3px solid #0f0f0f;
+}
+
+.neo-border-fine {
+  border: 2px solid #0f0f0f;
+}
+
+.neo-active:active {
+  transform: translate(2px, 2px);
+  box-shadow: 0px 0px 0px 0px #0f0f0f;
+}
+
+.neo-hover:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 8px 8px 0px 0px #0f0f0f;
+}
+
+/* Scratch effect filter */
+.scratch-effect {
+  filter: url(#scratch-filter);
+}
+
+/* Animation utilities */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(-10px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-in {
+  animation: fadeIn 0.3s ease-in;
+}
+
+.slide-in-from-top-2 {
+  animation: slideIn 0.2s ease-out;
+}
+
+.bg-transparency {
+  background-image:
+    conic-gradient(#eee 25%, transparent 0 50%, #eee 0 75%, transparent 0);
+  background-size: 20px 20px;
+  background-position: 0 0, 10px 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #0f0f0f;
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #D20A33;
+}
