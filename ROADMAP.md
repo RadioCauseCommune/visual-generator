@@ -1,8 +1,8 @@
 # 🗺️ Roadmap - Cause Commune Visual Generator
 
-**Version actuelle**: 1.1.0  
+**Version actuelle**: 1.2.0  
 **Date de création**: 27 décembre 2025  
-**Auteur**: opencode assistant
+**Dernière mise à jour**: 25 février 2026
 
 ---
 
@@ -11,10 +11,10 @@
 | Phase       | Tâches | Complétées | En cours | À faire |
 | ----------- | ------ | ---------- | -------- | ------- |
 | **Phase 1** | 11     | 8          | 0        | 3       |
-| **Phase 2** | 12     | 5          | 0        | 7       |
-| **Phase 3** | 17     | 8          | 0        | 9       |
-| **Phase 4** | 12     | 1          | 0        | 11      |
-| **TOTAL**   | 52     | 22         | 0        | 30      |
+| **Phase 2** | 14     | 7          | 0        | 7       |
+| **Phase 3** | 18     | 9          | 0        | 9       |
+| **Phase 4** | 13     | 2          | 0        | 11      |
+| **TOTAL**   | 56     | 26         | 0        | 30      |
 
 ---
 
@@ -596,6 +596,29 @@
 
 ---
 
+---
+
+#### ✅ 2.16 Toolbar Contextuelle
+- [x] Création d'une barre d'outils flottante sur le canvas
+- [x] Actions rapides : Img2Img, Dupliquer, Supprimer
+- [x] Affichage intelligent selon le calque sélectionné
+- [x] Suppression des contrôles redondants dans l'Inspector
+
+**Impact** :
+- UX plus fluide et directe
+- Encombrement réduit de l'interface
+
+---
+
+#### ✅ 2.17 Contrôles avancés des calques
+- [x] Redimensionnement précis des photos d'invités
+- [x] Masquage circulaire avec padding ajustable pour les logos
+- [x] Support des couleurs de fond personnalisées pour les logos masqués
+
+**Impact** :
+- Meilleure intégration visuelle des assets
+- Professionnalisme accru des designs produits
+
 ## 📅 Phase 3 : Fonctionnalités Avancées (3-4 mois)
 
 ### 🖼️ Priorité 1 - Export Avancé (High)
@@ -947,6 +970,16 @@
 
 ---
 
+#### ✅ 3.18 Intégration des icônes réseaux sociaux
+- [x] Ajout d'une section dédiée dans les calques
+- [x] Support des logos : Twitch, YouTube, X, Facebook, LinkedIn, Instagram, TikTok, Pinterest, Podcast
+- [x] Redimensionnement et coloration dynamique des icônes
+- [x] Alignement optimisé pour les bas de visuels
+
+**Impact** :
+- Création simplifiée de visuels promotionnels complets
+- Cohérence visuelle sur tous les supports
+
 ## 📅 Phase 4 : Infrastructure & Scalabilité (Ongoing)
 
 ### 🚀 Priorité 1 - DevOps (High)
@@ -970,6 +1003,20 @@
 - Déploiement simplifié
 - Images optimisées
 - Consistance dev/prod
+
+---
+
+#### ✅ 4.13 Publication Open Source (Première Release)
+- [x] Choix de la licence **GNU AGPL v3**
+- [x] Assainissement complet de la base de code (suppression des IPs internes, noms d'utilisateurs, secrets)
+- [x] Réinitialisation de l'historique Git pour une base propre
+- [x] Mise à jour du README avec instructions d'installation publiques
+- [x] Ajout de captures d'écran de l'interface
+
+**Impact** :
+- Accessibilité publique du projet
+- Collaboration communautaire facilitée
+- Protection juridique via AGPL v3
 
 ---
 
@@ -1206,10 +1253,10 @@
 
 | Priorité   | Total | Complétées | En cours | À faire | Progression |
 | ---------- | ----- | ---------- | -------- | ------- | ----------- |
-| **High**   | 15    | 12         | 0        | 3       | 80%         |
-| **Medium** | 20    | 7          | 0        | 13      | 35%         |
-| **Low**    | 12    | 0          | 0        | 12      | 0%          |
-| **TOTAL**  | 47    | 19         | 0        | 28      | 40%         |
+| **High**   | 16    | 14         | 0        | 2       | 87%         |
+| **Medium** | 22    | 9          | 0        | 13      | 41%         |
+| **Low**    | 18    | 3          | 0        | 15      | 16%         |
+| **TOTAL**  | 56    | 26         | 0        | 30      | 46%         |
 
 ### Tâches par catégorie
 
@@ -1217,13 +1264,14 @@
 | ------------------------ | ----- | ---------- | -------- | ------- | ----------- |
 | **Sécurité**             | 5     | 5          | 0        | 0       | 100%        |
 | **IA**                   | 8     | 4          | 0        | 4       | 50%         |
-| **UX/UI**                | 12    | 5          | 0        | 7       | 42%         |
+| **UX/UI**                | 14    | 7          | 0        | 7       | 50%         |
 | **Performance**          | 4     | 0          | 0        | 4       | 0%          |
 | **Accessibilité**        | 3     | 0          | 0        | 3       | 0%          |
 | **Collaboratif**         | 4     | 2          | 0        | 2       | 50%         |
-| **Infrastructure**       | 8     | 1          | 0        | 7       | 13%         |
+| **Infrastructure**       | 9     | 2          | 0        | 7       | 22%         |
 | **Monitoring/Analytics** | 7     | 0          | 0        | 7       | 0%          |
 | **Testing/CI/CD**        | 4     | 0          | 0        | 4       | 0%          |
+| **Open Source**          | 4     | 4          | 0        | 0       | 100%        |
 
 ### Temps estimé
 
@@ -1245,12 +1293,14 @@
    - ⏳ Configurer Husky (pre-commit hooks)
    - ⏳ Créer GitHub Actions (test + build)
 
-2. ✅ **Phase 2 - UX** (42% complété)
+2. ✅ **Phase 2 - UX** (50% complété)
    - ✅ Undo/Redo (historique des actions)
    - ✅ Copier/Coller des calques
    - ✅ Templates d'émissions prédéfinis
    - ✅ Galerie de projets
    - ✅ Toast notifications
+   - ✅ Toolbar Contextuelle
+   - ✅ Contrôles avancés (logos, photos)
 
 ### Court terme (1-2 mois)
 
@@ -1287,8 +1337,9 @@
 
 ### Long terme (6-12 mois)
 
-8. ✅ **Phase 4 - Infrastructure** (13% complété)
+8. ✅ **Phase 4 - Infrastructure** (22% complété)
    - ✅ Docker multi-stage build
+   - ✅ Publication Open Source (AGPL v3)
    - ⏳ Kubernetes (si scalabilité nécessaire)
    - ⏳ CDN pour les assets générés
    - ⏳ Backup automatique
@@ -1366,6 +1417,8 @@ Critères de succès pour chaque phase :
 - [x] Copier/Coller des calques
 - [x] Galerie de projets
 - [x] Toast notifications
+- [x] Toolbar Contextuelle
+- [x] Contrôles avancés (logos, photos)
 - [ ] Code splitting
 - [ ] Accessibilité WCAG 2.1 AA
 
@@ -1386,12 +1439,13 @@ Critères de succès pour chaque phase :
 ### Phase 4
 
 - [x] Docker build fonctionnel (multi-stage)
+- [x] Publication Open Source effectuée
 - [ ] Kubernetes déployé
 - [ ] Monitoring en place
 - [ ] Analytics opérationnels
 
 ---
 
-**Dernière mise à jour** : 27 décembre 2025  
-**Dernière révision** : 27 décembre 2025  
-**Prochaine révision** : Après complétion des tâches restantes Phase 1 (estimée : fin janvier 2026)
+**Dernière mise à jour** : 25 février 2026  
+**Dernière révision** : 25 février 2026  
+**Prochaine révision** : Après stabilisation de la release open source.
