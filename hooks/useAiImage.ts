@@ -45,9 +45,16 @@ export const useAiImage = (assetType: AssetType, layersCount: number) => {
         setIsGenerating(true);
         try {
             const { w, h } = DIMENSIONS[assetType];
+            // Utiliser les dimensions du canvas si non définies manuellement,
+            // en adaptant au ratio du template et en respectant les limites du modèle.
+            const model = getModelById(selectedModel);
+            const maxW = model?.maxWidth || 2048;
+            const maxH = model?.maxHeight || 2048;
+            const genWidth = aiParams.width !== undefined ? aiParams.width : clampAiSize(w, maxW);
+            const genHeight = aiParams.height !== undefined ? aiParams.height : clampAiSize(h, maxH);
             const url = await generateImage(
                 prompt,
-                { ...aiParams, model: selectedModel },
+                { ...aiParams, model: selectedModel, width: genWidth, height: genHeight },
                 selectedAiStyle
             );
 
