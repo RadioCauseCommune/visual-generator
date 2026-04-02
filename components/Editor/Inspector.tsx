@@ -387,27 +387,30 @@ const Inspector: React.FC<InspectorProps> = ({
                         </div>
                     )}
 
+                    {selectedLayer.type === 'image' && (
+                        <div>
+                            <label className="text-[10px] font-black uppercase flex justify-between">Zoom de l'image <span>{selectedLayer.imageScale ?? 100}%</span></label>
+                            <input
+                                type="range"
+                                min="50"
+                                max="200"
+                                value={selectedLayer.imageScale ?? 100}
+                                onChange={e => setLayers(prev => prev.map(l => l.id === selectedLayerId ? { ...l, imageScale: parseInt(e.target.value) } : l))}
+                                className="w-full accent-[#D20A33]"
+                            />
+                            <div className="flex justify-between mt-1">
+                                <button
+                                    onClick={() => setLayers(prev => prev.map(l => l.id === selectedLayerId ? { ...l, imageScale: 100 } : l))}
+                                    className="neo-border-fine px-2 py-0.5 text-[8px] font-black uppercase bg-white hover:bg-gray-100 neo-active"
+                                >
+                                    Réinitialiser (100%)
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
                     {selectedLayer.type === 'image' && selectedLayer.role === 'background' && (
                         <>
-                            <div>
-                                <label className="text-[10px] font-black uppercase flex justify-between">Zoom de l'image <span>{selectedLayer.imageScale ?? 100}%</span></label>
-                                <input
-                                    type="range"
-                                    min="50"
-                                    max="200"
-                                    value={selectedLayer.imageScale ?? 100}
-                                    onChange={e => setLayers(prev => prev.map(l => l.id === selectedLayerId ? { ...l, imageScale: parseInt(e.target.value) } : l))}
-                                    className="w-full accent-[#D20A33]"
-                                />
-                                <div className="flex justify-between mt-1">
-                                    <button
-                                        onClick={() => setLayers(prev => prev.map(l => l.id === selectedLayerId ? { ...l, imageScale: 100 } : l))}
-                                        className="neo-border-fine px-2 py-0.5 text-[8px] font-black uppercase bg-white hover:bg-gray-100 neo-active"
-                                    >
-                                        Réinitialiser (100%)
-                                    </button>
-                                </div>
-                            </div>
                             <div>
                                 <label className="text-[10px] font-black uppercase mb-1 block">Couleur de l'overlay</label>
                                 <div className="grid grid-cols-5 gap-1">
@@ -517,6 +520,24 @@ const Inspector: React.FC<InspectorProps> = ({
 
                     {selectedLayer.type === 'image' && (
                         <div className="space-y-3 pt-2 border-t border-gray-100">
+                            {selectedLayer.role === 'manual' && (
+                                <button
+                                    onClick={() => {
+                                        const { w, h } = DIMENSIONS[assetType];
+                                        setLayers(prev => prev.map(l => l.id === selectedLayerId ? {
+                                            ...l,
+                                            x: 0, y: 0,
+                                            width: w, height: h,
+                                            imageOffsetX: 50, imageOffsetY: 50,
+                                            imageScale: 100,
+                                            zIndex: 1
+                                        } : l));
+                                    }}
+                                    className="w-full neo-border-fine bg-[#A3FF00] hover:bg-[#8fe000] font-black py-2 text-[10px] uppercase neo-active"
+                                >
+                                    Couvrir le canevas (fond)
+                                </button>
+                            )}
                             <div>
                                 <label className="text-[10px] font-black uppercase mb-2 block">Position de l'image</label>
                                 <p className="text-[8px] text-gray-600 mb-2">Déplacez l'image pour choisir la zone visible</p>
