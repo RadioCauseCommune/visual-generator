@@ -839,6 +839,261 @@ app.post('/api/social/token/refresh', apiLimiter, async (req, res) => {
 });
 
 // ========================================
+// ROUTES PUBLICATION LINKEDIN
+// ========================================
+
+// Helper : récupérer et valider l'userId depuis un Bearer token Supabase
+async function getSupabaseUserId(authHeader, supabaseUrl, supabaseServiceKey) {
+  if (!authHeader?.startsWith('Bearer ')) return null;
+  const userToken = authHeader.replace('Bearer ', '');
+  const authRes = await fetch(`${supabaseUrl}/auth/v1/user`, {
+    headers: { 'Authorization': `Bearer ${userToken}`, 'apikey': supabaseServiceKey }
+  });
+  if (!authRes.ok) return null;
+  const { id } = await authRes.json();
+  return id || null;
+}
+
+// ── Initier le flow OAuth LinkedIn ───────────────────────────────────────────
+app.post('/api/social/linkedin/oauth/initiate', apiLimiter, async (req, res) => {
+  try {
+    const clientId = process.env.LINKEDIN_CLIENT_ID;
+    const redirectUri = process.env.LINKEDIN_OAUTH_REDIRECT_URI;
+    if (!clientId || !redirectUri) {
+      return res.status(500).json({ error: 'LINKEDIN_CLIENT_ID ou LINKEDIN_OAUTH_REDIRECT_URI manquant' });
+    }
+
+    const state = crypto.randomBytes(16).toString('hex');
+    cleanExpiredStates();
+    oauthStateStore.set(state, { expiresAt: Date.now() + 10 * 60 * 1000 });
+
+    const params = new URLSearchParams({
+      response_type: 'code',
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      state,
+      scope: 'openid profile w_member_social',
+    });
+
+    res.json({ authUrl: `https://www.linkedin.com/oauth/v2/authorization?${params}`, state });
+  } catch (error) {
+    console.error('Erreur OAuth LinkedIn initiate:', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Erreur inconnue' });
+  }
+});
+
+// ── Callback OAuth LinkedIn ──────────────────────────────────────────────────
+app.get('/api/social/linkedin/oauth/callback', async (req, res) => {
+  try {
+    const { code, state, error: oauthError } = req.query;
+
+    if (oauthError) {
+      return res.redirect(`/?social_error=${encodeURIComponent(oauthError)}`);
+    }
+
+    if (!state || !oauthStateStore.has(state)) {
+      return res.status(400).send('State OAuth invalide ou expiré');
+    }
+    oauthStateStore.delete(state);
+
+    const clientId = process.env.LINKEDIN_CLIENT_ID;
+    const clientSecret = process.env.LINKEDIN_CLIENT_SECRET;
+    const redirectUri = process.env.LINKEDIN_OAUTH_REDIRECT_URI;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+
+    if (!clientId || !clientSecret || !redirectUri || !supabaseServiceKey || !supabaseUrl) {
+      return res.status(500).send('Configuration serveur incomplète');
+    }
+
+    // Échanger le code contre un access token
+    const tokenRes = await fetch('https://www.linkedin.com/oauth/v2/accessToken', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: redirectUri,
+        client_id: clientId,
+        client_secret: clientSecret,
+      }),
+    });
+    const tokenData = await tokenRes.json();
+    if (tokenData.error) return res.status(400).send(`Erreur LinkedIn: ${tokenData.error_description}`);
+
+    const accessToken = tokenData.access_token;
+    const expiresIn = tokenData.expires_in || 5184000; // ~60 jours
+
+    // Récupérer le profil LinkedIn (sub = LinkedIn member URN)
+    const profileRes = await fetch('https://api.linkedin.com/v2/userinfo', {
+      headers: { 'Authorization': `Bearer ${accessToken}` },
+    });
+    const profile = await profileRes.json();
+    const linkedinId = profile.sub; // format: "xxxxxxxx"
+    const accountName = profile.name || profile.given_name || linkedinId;
+
+    if (!linkedinId) return res.status(400).send('Impossible de récupérer le profil LinkedIn');
+
+    const encryptedToken = encryptToken(accessToken);
+    const tokenExpiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
+
+    // Stocker le token (upsert)
+    await fetch(`${supabaseUrl}/rest/v1/social_tokens`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${supabaseServiceKey}`,
+        'apikey': supabaseServiceKey,
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates',
+      },
+      body: JSON.stringify({
+        account_id: linkedinId,
+        account_name: accountName,
+        platform: 'linkedin',
+        access_token: encryptedToken,
+        token_expires_at: tokenExpiresAt,
+        is_default: false,
+      }),
+    });
+
+    res.redirect('/?social_connected=linkedin');
+  } catch (error) {
+    console.error('Erreur OAuth LinkedIn callback:', error);
+    res.redirect(`/?social_error=${encodeURIComponent(error instanceof Error ? error.message : 'Erreur inconnue')}`);
+  }
+});
+
+// ── Publier sur LinkedIn ──────────────────────────────────────────────────────
+app.post('/api/social/linkedin/publish', apiLimiter, async (req, res) => {
+  try {
+    const { imageBase64, caption, accountId } = req.body;
+    if (!imageBase64) return res.status(400).json({ error: 'imageBase64 requis' });
+
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+
+    // Récupérer le token LinkedIn
+    let accessToken;
+    let authorUrn;
+
+    if (!accountId || accountId === 'default') {
+      return res.status(400).json({ error: 'LinkedIn requiert un compte connecté — pas de compte par défaut disponible' });
+    }
+
+    if (!supabaseServiceKey || !supabaseUrl) {
+      return res.status(500).json({ error: 'Configuration Supabase manquante' });
+    }
+
+    const tokenRes = await fetch(
+      `${supabaseUrl}/rest/v1/social_tokens?account_id=eq.${accountId}&platform=eq.linkedin&select=access_token,token_expires_at`,
+      { headers: { 'Authorization': `Bearer ${supabaseServiceKey}`, 'apikey': supabaseServiceKey } }
+    );
+    const tokens = await tokenRes.json();
+    if (!tokens?.length) return res.status(404).json({ error: 'Compte LinkedIn non trouvé' });
+
+    const tokenRecord = tokens[0];
+    if (tokenRecord.token_expires_at && new Date(tokenRecord.token_expires_at) < new Date()) {
+      return res.status(401).json({ error: 'Token LinkedIn expiré, veuillez reconnecter votre compte' });
+    }
+
+    accessToken = decryptToken(tokenRecord.access_token);
+    authorUrn = `urn:li:person:${accountId}`;
+
+    // Décoder l'image base64
+    const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+    const imageBuffer = Buffer.from(base64Data, 'base64');
+
+    // Étape 1 : Enregistrer l'upload (obtenir une URL d'upload + asset URN)
+    const registerRes = await fetch('https://api.linkedin.com/v2/assets?action=registerUpload', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'X-Restli-Protocol-Version': '2.0.0',
+      },
+      body: JSON.stringify({
+        registerUploadRequest: {
+          recipes: ['urn:li:digitalmediaRecipe:feedshare-image'],
+          owner: authorUrn,
+          serviceRelationships: [{
+            relationshipType: 'OWNER',
+            identifier: 'urn:li:userGeneratedContent',
+          }],
+        },
+      }),
+    });
+
+    const registerData = await registerRes.json();
+    if (!registerRes.ok) {
+      return res.status(400).json({ error: `LinkedIn register upload: ${JSON.stringify(registerData)}` });
+    }
+
+    const uploadUrl = registerData.value?.uploadMechanism?.['com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest']?.uploadUrl;
+    const assetUrn = registerData.value?.asset;
+
+    if (!uploadUrl || !assetUrn) {
+      return res.status(500).json({ error: 'LinkedIn: uploadUrl ou assetUrn manquant dans la réponse' });
+    }
+
+    // Étape 2 : Uploader le binaire de l'image
+    const uploadRes = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'image/png',
+      },
+      body: imageBuffer,
+    });
+
+    if (!uploadRes.ok) {
+      return res.status(500).json({ error: `LinkedIn upload image: ${uploadRes.status} ${uploadRes.statusText}` });
+    }
+
+    // Étape 3 : Créer le post (ugcPost)
+    const postRes = await fetch('https://api.linkedin.com/v2/ugcPosts', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'X-Restli-Protocol-Version': '2.0.0',
+      },
+      body: JSON.stringify({
+        author: authorUrn,
+        lifecycleState: 'PUBLISHED',
+        specificContent: {
+          'com.linkedin.ugc.ShareContent': {
+            shareCommentary: { text: caption || '' },
+            shareMediaCategory: 'IMAGE',
+            media: [{
+              status: 'READY',
+              description: { text: caption || '' },
+              media: assetUrn,
+            }],
+          },
+        },
+        visibility: {
+          'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC',
+        },
+      }),
+    });
+
+    const postData = await postRes.json();
+    if (!postRes.ok) {
+      return res.status(400).json({ error: `LinkedIn ugcPost: ${JSON.stringify(postData)}` });
+    }
+
+    // L'ID du post LinkedIn est dans le header x-restli-id
+    const postId = postRes.headers.get('x-restli-id') || postData.id || '';
+    const postUrl = postId ? `https://www.linkedin.com/feed/update/${postId}/` : 'https://www.linkedin.com/feed/';
+
+    res.json({ success: true, postId, postUrl });
+  } catch (error) {
+    console.error('Erreur publication LinkedIn:', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Erreur inconnue' });
+  }
+});
+
+// ========================================
 // SERVIR LES FICHIERS STATIQUES
 // ========================================
 

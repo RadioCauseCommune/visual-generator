@@ -5,6 +5,7 @@
 
 import { PublishOptions, PublishResult, PublicationRecord, SocialPlatform } from '../types';
 import { publishToInstagram } from './instagramService';
+import { publishToLinkedIn } from './linkedinService';
 import { supabase } from './supabase';
 
 /**
@@ -22,8 +23,7 @@ export async function publishVisual(
     case 'instagram':
       return publishToInstagram(imageDataUrl, options, projectId);
     case 'linkedin':
-      // Phase 3 : à implémenter
-      return { success: false, error: 'Publication LinkedIn pas encore disponible' };
+      return publishToLinkedIn(imageDataUrl, options, projectId);
     default:
       return { success: false, error: `Plateforme non supportée: ${platform}` };
   }
