@@ -17,7 +17,8 @@ async function getAuthHeader(): Promise<Record<string, string>> {
  * Redirige vers Meta puis revient sur /?social_connected=instagram
  */
 export async function initiateInstagramOAuth(): Promise<void> {
-  const res = await fetch('/api/social/instagram/oauth/initiate', { method: 'POST' });
+  const authHeaders = await getAuthHeader();
+  const res = await fetch('/api/social/instagram/oauth/initiate', { method: 'POST', headers: authHeaders });
   if (!res.ok) throw new Error('Impossible d\'initier la connexion Instagram');
   const { authUrl } = await res.json();
   window.location.href = authUrl;
