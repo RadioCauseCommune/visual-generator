@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { AssetType, Layer, LayerRole, AiStyleType, AiModelType, AiParameters, isInstagramAsset } from '../../types';
+import { AssetType, Layer, LayerRole, AiStyleType, AiModelType, AiParameters, isInstagramAsset, isLinkedInAsset } from '../../types';
 import { DIMENSIONS, LOGO_OPTIONS, COLORS, SOCIAL_ICONS } from '../../constants';
 import { AI_STYLES } from '../../services/aiService';
 import { getModelById } from '../../services/aiModels';
@@ -470,8 +470,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                 </div>
             </section>
 
-            {/* Publication directe — visible uniquement pour les formats Instagram */}
-            {isInstagramAsset(assetType) && (
+            {/* Publication directe — visible pour les formats Instagram et LinkedIn */}
+            {(isInstagramAsset(assetType) || isLinkedInAsset(assetType)) && (
                 <>
                     <section className="border-t-2 border-black pt-4">
                         <PublishPanel
