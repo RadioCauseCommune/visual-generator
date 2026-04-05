@@ -150,3 +150,61 @@ export interface Dimensions {
   width: number;
   height: number;
 }
+
+// ─── Types Publication Sociale ────────────────────────────────────────────────
+
+export type SocialPlatform = 'instagram' | 'linkedin';
+
+export interface PublishOptions {
+  caption: string;
+  hashtags: string[];
+  accountId: string; // 'default' pour le compte Radio Cause Commune
+}
+
+export interface SocialAccount {
+  id: string;
+  platform: SocialPlatform;
+  account_id: string;
+  account_name: string;
+  is_default: boolean;
+  token_expires_at?: string;
+}
+
+export interface PublicationRecord {
+  id: string;
+  platform: SocialPlatform;
+  account_id?: string;
+  account_name?: string;
+  caption?: string;
+  platform_post_id?: string;
+  post_url?: string;
+  status: 'pending' | 'published' | 'failed';
+  error_message?: string;
+  published_at?: string;
+  created_at: string;
+}
+
+export interface PublishResult {
+  success: boolean;
+  postId?: string;
+  postUrl?: string;
+  error?: string;
+}
+
+// Vérifie si un AssetType est un format Instagram
+export function isInstagramAsset(assetType: AssetType): boolean {
+  return [
+    AssetType.INSTA_POST_SQUARE,
+    AssetType.INSTA_POST_PORTRAIT,
+    AssetType.INSTA_POST_LANDSCAPE,
+    AssetType.INSTA_STORY,
+  ].includes(assetType);
+}
+
+// Vérifie si un AssetType est un format LinkedIn
+export function isLinkedInAsset(assetType: AssetType): boolean {
+  return [
+    AssetType.LINKEDIN_POST,
+    AssetType.LINKEDIN_BANNER,
+  ].includes(assetType);
+}

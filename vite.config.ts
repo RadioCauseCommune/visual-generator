@@ -251,12 +251,59 @@ export default defineConfig(({ mode }) => {
     };
   };
 
+  // Plugin proxy pour les endpoints de publication sociale (dev uniquement)
+  // En production, ces routes sont gérées directement par server-production.js
+  const socialPublishingProxyPlugin = (): Plugin => {
+    return {
+      name: 'social-publishing-proxy',
+      configureServer(server) {
+        server.middlewares.use('/api/social', async (req, res) => {
+          // En dev, on redirige vers le server-production.js si disponible sur le port 3001
+          // Sinon, on retourne une erreur claire pour guider le développeur
+          const devServerUrl = env.DEV_SOCIAL_API_URL || 'http://localhost:3001';
+          const targetUrl = `${devServerUrl}${req.url ? `/api/social${req.url}` : '/api/social'}`;
+
+          let body = '';
+          if (req.method === 'POST' || req.method === 'PATCH') {
+            await new Promise((resolve) => {
+              req.on('data', chunk => { body += chunk.toString(); });
+              req.on('end', resolve);
+            });
+          }
+
+          try {
+            const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+            if (req.headers.authorization) {
+              headers['Authorization'] = req.headers.authorization as string;
+            }
+
+            const response = await fetch(targetUrl, {
+              method: req.method,
+              headers,
+              ...(body ? { body } : {}),
+            });
+
+            const contentType = response.headers.get('content-type') || 'application/json';
+            const data = await response.text();
+            res.writeHead(response.status, { 'Content-Type': contentType });
+            res.end(data);
+          } catch {
+            res.writeHead(503, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              error: 'Service de publication sociale non disponible en dev. Lancer server-production.js sur le port 3001 avec DEV_SOCIAL_API_URL=http://localhost:3001'
+            }));
+          }
+        });
+      },
+    };
+  };
+
   return {
     server: {
       port: 3000,
       host: '0.0.0.0',
     },
-    plugins: [react(), huggingfaceProxyPlugin(), apiProxyPlugin(), replicateProxyPlugin(), fluxLocalProxyPlugin()],
+    plugins: [react(), huggingfaceProxyPlugin(), apiProxyPlugin(), replicateProxyPlugin(), fluxLocalProxyPlugin(), socialPublishingProxyPlugin()],
     // ⚠️ SÉCURITÉ: Ne PAS exposer le token dans le bundle client
     // Le proxy backend (huggingfaceProxyPlugin) gère l'authentification
     // define: {

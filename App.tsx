@@ -62,7 +62,7 @@ const App: React.FC = () => {
 
   const {
     handleExportImage, handleExportSvg, handleExportProject, handleImportProject,
-    handleFileUpload, handleBatchExport: runBatchExport
+    handleFileUpload, handleBatchExport: runBatchExport, captureImage
   } = useProject(
     assetType, layers, meta,
     setAssetType, setLayers, setMeta, setSelectedLayerId, showError
@@ -372,6 +372,8 @@ const App: React.FC = () => {
                 handleFileUpload={handleFileUpload}
                 applyTemplate={applyTemplate}
                 onRssImport={handleRssImport}
+                user={user}
+                captureImage={() => captureImage(assetType)}
               />
 
               <CanvasArea
