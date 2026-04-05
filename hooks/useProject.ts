@@ -408,6 +408,7 @@ export const useProject = (
         handleExportProject,
         handleImportProject,
         handleFileUpload,
-        handleBatchExport
+        handleBatchExport,
+        captureImage,
     };
 };

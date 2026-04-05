@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { AssetType, Layer, LayerRole, AiStyleType, AiModelType, AiParameters } from '../../types';
+import { AssetType, Layer, LayerRole, AiStyleType, AiModelType, AiParameters, isInstagramAsset } from '../../types';
 import { DIMENSIONS, LOGO_OPTIONS, COLORS, SOCIAL_ICONS } from '../../constants';
 import { AI_STYLES } from '../../services/aiService';
 import { getModelById } from '../../services/aiModels';
@@ -8,6 +8,8 @@ import { ModelSelector } from '../ModelSelector';
 import TemplateSelector from './TemplateSelector';
 import RssImporter from './RssImporter';
 import { RssEpisode } from '../../services/rssService';
+import PublishPanel from '../UI/PublishPanel';
+import PublicationHistory from '../UI/PublicationHistory';
 
 interface SidebarProps {
     assetType: AssetType;
@@ -40,6 +42,11 @@ interface SidebarProps {
 
     // RSS props
     onRssImport: (episode: RssEpisode) => void;
+
+    // Social publishing props
+    user: any;
+    captureImage: () => Promise<string | null>;
+    projectId?: string;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -59,7 +66,10 @@ const Sidebar: React.FC<SidebarProps> = ({
     handleAiGenerate,
     handleFileUpload,
     applyTemplate,
-    onRssImport
+    onRssImport,
+    user,
+    captureImage,
+    projectId,
 }) => {
     const currentModel = getModelById(selectedModel);
     const normalizeAiSize = (value: number, max: number) => {
@@ -459,6 +469,23 @@ const Sidebar: React.FC<SidebarProps> = ({
                     ))}
                 </div>
             </section>
+
+            {/* Publication directe — visible uniquement pour les formats Instagram */}
+            {isInstagramAsset(assetType) && (
+                <>
+                    <section className="border-t-2 border-black pt-4">
+                        <PublishPanel
+                            assetType={assetType}
+                            captureImage={captureImage}
+                            projectId={projectId}
+                            user={user}
+                        />
+                    </section>
+                    <section>
+                        <PublicationHistory user={user} />
+                    </section>
+                </>
+            )}
         </aside>
     );
 };

@@ -26,6 +26,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import crypto from 'crypto';
 
 // Charger les variables d'environnement
 config();
@@ -363,6 +364,478 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'production'
   });
+});
+
+// ========================================
+// ROUTES PUBLICATION SOCIALE
+// ========================================
+
+// Helpers chiffrement tokens OAuth (AES-256-GCM)
+function encryptToken(plaintext) {
+  const key = Buffer.from(process.env.SOCIAL_TOKEN_ENCRYPTION_KEY || '', 'hex');
+  if (key.length !== 32) throw new Error('SOCIAL_TOKEN_ENCRYPTION_KEY doit être une clé hex de 64 caractères (32 bytes)');
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `${iv.toString('hex')}:${tag.toString('hex')}:${encrypted.toString('hex')}`;
+}
+
+function decryptToken(ciphertext) {
+  const key = Buffer.from(process.env.SOCIAL_TOKEN_ENCRYPTION_KEY || '', 'hex');
+  const [ivHex, tagHex, dataHex] = ciphertext.split(':');
+  const iv = Buffer.from(ivHex, 'hex');
+  const tag = Buffer.from(tagHex, 'hex');
+  const data = Buffer.from(dataHex, 'hex');
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+  decipher.setAuthTag(tag);
+  return decipher.update(data) + decipher.final('utf8');
+}
+
+// Store PKCE state en mémoire (TTL 10 min) — en production, utiliser Redis ou Supabase
+const oauthStateStore = new Map();
+function cleanExpiredStates() {
+  const now = Date.now();
+  for (const [k, v] of oauthStateStore.entries()) {
+    if (now > v.expiresAt) oauthStateStore.delete(k);
+  }
+}
+
+// ── Lister les comptes sociaux connectés ──────────────────────────────────────
+app.get('/api/social/accounts', apiLimiter, async (req, res) => {
+  try {
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    if (!supabaseServiceKey || !supabaseUrl) {
+      return res.status(500).json({ error: 'Configuration Supabase manquante' });
+    }
+
+    // Récupérer l'utilisateur depuis le token Bearer passé par le client
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Token d\'authentification requis' });
+    }
+    const userToken = authHeader.replace('Bearer ', '');
+
+    // Vérifier le token utilisateur via Supabase Auth
+    const authRes = await fetch(`${supabaseUrl}/auth/v1/user`, {
+      headers: { 'Authorization': `Bearer ${userToken}`, 'apikey': supabaseServiceKey }
+    });
+    if (!authRes.ok) return res.status(401).json({ error: 'Token invalide' });
+    const { id: userId } = await authRes.json();
+
+    // Lire les comptes depuis social_tokens (comptes de l'user + comptes par défaut)
+    const dbRes = await fetch(
+      `${supabaseUrl}/rest/v1/social_tokens?or=(user_id.eq.${userId},is_default.eq.true)&select=id,platform,account_id,account_name,is_default,token_expires_at`,
+      { headers: { 'Authorization': `Bearer ${supabaseServiceKey}`, 'apikey': supabaseServiceKey } }
+    );
+    const accounts = await dbRes.json();
+    res.json({ accounts: accounts || [] });
+  } catch (error) {
+    console.error('Erreur social/accounts:', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Erreur inconnue' });
+  }
+});
+
+// ── Initier le flow OAuth Instagram ──────────────────────────────────────────
+app.post('/api/social/instagram/oauth/initiate', apiLimiter, async (req, res) => {
+  try {
+    const appId = process.env.META_APP_ID;
+    const redirectUri = process.env.META_OAUTH_REDIRECT_URI;
+    if (!appId || !redirectUri) {
+      return res.status(500).json({ error: 'META_APP_ID ou META_OAUTH_REDIRECT_URI manquant' });
+    }
+
+    // Générer un state PKCE anti-CSRF
+    const state = crypto.randomBytes(16).toString('hex');
+    cleanExpiredStates();
+    oauthStateStore.set(state, { expiresAt: Date.now() + 10 * 60 * 1000 });
+
+    const params = new URLSearchParams({
+      client_id: appId,
+      redirect_uri: redirectUri,
+      scope: 'instagram_basic,instagram_content_publish,pages_read_engagement,pages_show_list',
+      response_type: 'code',
+      state,
+    });
+
+    res.json({ authUrl: `https://www.facebook.com/v19.0/dialog/oauth?${params}`, state });
+  } catch (error) {
+    console.error('Erreur OAuth initiate:', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Erreur inconnue' });
+  }
+});
+
+// ── Callback OAuth Instagram ──────────────────────────────────────────────────
+app.get('/api/social/instagram/oauth/callback', async (req, res) => {
+  try {
+    const { code, state, error: oauthError } = req.query;
+
+    if (oauthError) {
+      return res.redirect(`/?social_error=${encodeURIComponent(oauthError)}`);
+    }
+
+    // Valider le state PKCE
+    if (!state || !oauthStateStore.has(state)) {
+      return res.status(400).send('State OAuth invalide ou expiré');
+    }
+    oauthStateStore.delete(state);
+
+    const appId = process.env.META_APP_ID;
+    const appSecret = process.env.META_APP_SECRET;
+    const redirectUri = process.env.META_OAUTH_REDIRECT_URI;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+
+    if (!appId || !appSecret || !redirectUri || !supabaseServiceKey || !supabaseUrl) {
+      return res.status(500).send('Configuration serveur incomplète');
+    }
+
+    // Échanger le code contre un short-lived token
+    const tokenRes = await fetch('https://graph.facebook.com/v19.0/oauth/access_token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ client_id: appId, client_secret: appSecret, redirect_uri: redirectUri, code }),
+    });
+    const tokenData = await tokenRes.json();
+    if (tokenData.error) return res.status(400).send(`Erreur Meta: ${tokenData.error.message}`);
+
+    // Échanger contre un long-lived token (60 jours)
+    const longTokenRes = await fetch(
+      `https://graph.facebook.com/v19.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${tokenData.access_token}`
+    );
+    const longTokenData = await longTokenRes.json();
+    if (longTokenData.error) return res.status(400).send(`Erreur token long-lived: ${longTokenData.error.message}`);
+
+    const longToken = longTokenData.access_token;
+    const expiresIn = longTokenData.expires_in || 5184000; // 60 jours par défaut
+
+    // Récupérer les Pages Facebook et les comptes Instagram liés
+    const pagesRes = await fetch(`https://graph.facebook.com/v19.0/me/accounts?fields=id,name,instagram_business_account&access_token=${longToken}`);
+    const pagesData = await pagesRes.json();
+
+    const igAccounts = (pagesData.data || [])
+      .filter(p => p.instagram_business_account)
+      .map(p => ({ accountId: p.instagram_business_account.id, accountName: p.name }));
+
+    if (igAccounts.length === 0) {
+      return res.redirect('/?social_error=no_instagram_account');
+    }
+
+    // Stocker le token chiffré pour chaque compte Instagram trouvé
+    // Note: on utilise l'user_id depuis un cookie de session si disponible
+    // (Dans une implémentation complète, passer l'user_id via le state OAuth)
+    const encryptedToken = encryptToken(longToken);
+    const tokenExpiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
+
+    for (const ig of igAccounts) {
+      await fetch(`${supabaseUrl}/rest/v1/social_tokens`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${supabaseServiceKey}`,
+          'apikey': supabaseServiceKey,
+          'Content-Type': 'application/json',
+          'Prefer': 'resolution=merge-duplicates',
+        },
+        body: JSON.stringify({
+          account_id: ig.accountId,
+          account_name: ig.accountName,
+          platform: 'instagram',
+          access_token: encryptedToken,
+          token_expires_at: tokenExpiresAt,
+          is_default: false,
+        }),
+      });
+    }
+
+    res.redirect('/?social_connected=instagram');
+  } catch (error) {
+    console.error('Erreur OAuth callback:', error);
+    res.redirect(`/?social_error=${encodeURIComponent(error instanceof Error ? error.message : 'Erreur inconnue')}`);
+  }
+});
+
+// ── Upload image vers Supabase Storage ────────────────────────────────────────
+app.post('/api/social/instagram/upload-image', apiLimiter, async (req, res) => {
+  try {
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    if (!supabaseServiceKey || !supabaseUrl) {
+      return res.status(500).json({ error: 'Configuration Supabase manquante' });
+    }
+
+    const { imageBase64, projectId } = req.body;
+    if (!imageBase64) return res.status(400).json({ error: 'imageBase64 requis' });
+
+    // Décoder le base64 (peut être "data:image/png;base64,..." ou juste le base64)
+    const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+    const imageBuffer = Buffer.from(base64Data, 'base64');
+
+    const filename = `${projectId || 'export'}_${Date.now()}.png`;
+    const storagePath = `${filename}`;
+
+    // Upload vers Supabase Storage (bucket publish-temp)
+    const uploadRes = await fetch(`${supabaseUrl}/storage/v1/object/publish-temp/${storagePath}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${supabaseServiceKey}`,
+        'apikey': supabaseServiceKey,
+        'Content-Type': 'image/png',
+        'x-upsert': 'true',
+      },
+      body: imageBuffer,
+    });
+
+    if (!uploadRes.ok) {
+      const err = await uploadRes.text();
+      return res.status(500).json({ error: `Upload Supabase échoué: ${err}` });
+    }
+
+    const publicUrl = `${supabaseUrl}/storage/v1/object/public/publish-temp/${storagePath}`;
+    res.json({ publicUrl, storagePath });
+  } catch (error) {
+    console.error('Erreur upload image:', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Erreur inconnue' });
+  }
+});
+
+// ── Publier sur Instagram ─────────────────────────────────────────────────────
+app.post('/api/social/instagram/publish', apiLimiter, async (req, res) => {
+  try {
+    const { imageUrl, caption, accountId, storagePath } = req.body;
+    if (!imageUrl || !caption === undefined) {
+      return res.status(400).json({ error: 'imageUrl requis' });
+    }
+
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+
+    // Déterminer quel token utiliser
+    let accessToken;
+    let igAccountId = accountId;
+
+    if (!accountId || accountId === 'default') {
+      // Utiliser le compte par défaut Radio Cause Commune
+      accessToken = process.env.META_DEFAULT_ACCESS_TOKEN;
+      igAccountId = process.env.META_DEFAULT_INSTAGRAM_ACCOUNT_ID;
+      if (!accessToken || !igAccountId) {
+        return res.status(500).json({ error: 'Compte Instagram par défaut non configuré' });
+      }
+    } else {
+      // Récupérer le token chiffré depuis Supabase
+      const tokenRes = await fetch(
+        `${supabaseUrl}/rest/v1/social_tokens?account_id=eq.${accountId}&platform=eq.instagram&select=access_token,token_expires_at`,
+        { headers: { 'Authorization': `Bearer ${supabaseServiceKey}`, 'apikey': supabaseServiceKey } }
+      );
+      const tokens = await tokenRes.json();
+      if (!tokens?.length) return res.status(404).json({ error: 'Compte Instagram non trouvé' });
+
+      // Vérifier l'expiration
+      const tokenRecord = tokens[0];
+      if (tokenRecord.token_expires_at && new Date(tokenRecord.token_expires_at) < new Date()) {
+        return res.status(401).json({ error: 'Token Instagram expiré, veuillez reconnecter votre compte' });
+      }
+
+      accessToken = decryptToken(tokenRecord.access_token);
+    }
+
+    // Étape 1 : Créer un media container Instagram
+    const containerRes = await fetch(`https://graph.facebook.com/v19.0/${igAccountId}/media`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        image_url: imageUrl,
+        caption: caption || '',
+        access_token: accessToken,
+      }),
+    });
+    const containerData = await containerRes.json();
+    if (containerData.error) {
+      return res.status(400).json({ error: `Meta API: ${containerData.error.message}` });
+    }
+
+    const containerId = containerData.id;
+
+    // Étape 2 : Publier le container
+    const publishRes = await fetch(`https://graph.facebook.com/v19.0/${igAccountId}/media_publish`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        creation_id: containerId,
+        access_token: accessToken,
+      }),
+    });
+    const publishData = await publishRes.json();
+    if (publishData.error) {
+      return res.status(400).json({ error: `Meta API publish: ${publishData.error.message}` });
+    }
+
+    const postId = publishData.id;
+    const postUrl = `https://www.instagram.com/p/${postId}/`;
+
+    // Nettoyage de l'image temporaire Supabase Storage
+    if (storagePath && supabaseServiceKey && supabaseUrl) {
+      fetch(`${supabaseUrl}/storage/v1/object/publish-temp/${storagePath}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${supabaseServiceKey}`, 'apikey': supabaseServiceKey },
+      }).catch(err => console.warn('Cleanup storage échoué:', err));
+    }
+
+    res.json({ success: true, postId, postUrl });
+  } catch (error) {
+    console.error('Erreur publication Instagram:', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Erreur inconnue' });
+  }
+});
+
+// ── Sauvegarder l'historique de publication ───────────────────────────────────
+app.post('/api/social/publications', apiLimiter, async (req, res) => {
+  try {
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    if (!supabaseServiceKey || !supabaseUrl) {
+      return res.status(500).json({ error: 'Configuration Supabase manquante' });
+    }
+
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Token d\'authentification requis' });
+    }
+    const userToken = authHeader.replace('Bearer ', '');
+
+    // Vérifier le token utilisateur
+    const authRes = await fetch(`${supabaseUrl}/auth/v1/user`, {
+      headers: { 'Authorization': `Bearer ${userToken}`, 'apikey': supabaseServiceKey }
+    });
+    if (!authRes.ok) return res.status(401).json({ error: 'Token invalide' });
+    const { id: userId } = await authRes.json();
+
+    const { platform, account_id, account_name, caption, image_url, platform_post_id, post_url, status, error_message, project_id } = req.body;
+
+    const insertRes = await fetch(`${supabaseUrl}/rest/v1/publications`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${supabaseServiceKey}`,
+        'apikey': supabaseServiceKey,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation',
+      },
+      body: JSON.stringify({
+        user_id: userId,
+        project_id: project_id || null,
+        platform,
+        account_id,
+        account_name,
+        caption,
+        image_url,
+        platform_post_id,
+        post_url,
+        status: status || 'published',
+        error_message: error_message || null,
+        published_at: status === 'published' ? new Date().toISOString() : null,
+      }),
+    });
+
+    const publication = await insertRes.json();
+    res.status(201).json(publication);
+  } catch (error) {
+    console.error('Erreur sauvegarde publication:', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Erreur inconnue' });
+  }
+});
+
+// ── Lire l'historique des publications ───────────────────────────────────────
+app.get('/api/social/publications', apiLimiter, async (req, res) => {
+  try {
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    if (!supabaseServiceKey || !supabaseUrl) {
+      return res.status(500).json({ error: 'Configuration Supabase manquante' });
+    }
+
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Token d\'authentification requis' });
+    }
+    const userToken = authHeader.replace('Bearer ', '');
+
+    const authRes = await fetch(`${supabaseUrl}/auth/v1/user`, {
+      headers: { 'Authorization': `Bearer ${userToken}`, 'apikey': supabaseServiceKey }
+    });
+    if (!authRes.ok) return res.status(401).json({ error: 'Token invalide' });
+    const { id: userId } = await authRes.json();
+
+    const dbRes = await fetch(
+      `${supabaseUrl}/rest/v1/publications?user_id=eq.${userId}&order=created_at.desc&limit=20`,
+      { headers: { 'Authorization': `Bearer ${supabaseServiceKey}`, 'apikey': supabaseServiceKey } }
+    );
+    const publications = await dbRes.json();
+    res.json({ publications: publications || [] });
+  } catch (error) {
+    console.error('Erreur lecture publications:', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Erreur inconnue' });
+  }
+});
+
+// ── Rafraîchir un token Instagram long-lived ──────────────────────────────────
+app.post('/api/social/token/refresh', apiLimiter, async (req, res) => {
+  try {
+    const { accountId, platform } = req.body;
+    if (!accountId || platform !== 'instagram') {
+      return res.status(400).json({ error: 'accountId et platform=instagram requis' });
+    }
+
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const appId = process.env.META_APP_ID;
+    const appSecret = process.env.META_APP_SECRET;
+    if (!supabaseServiceKey || !supabaseUrl || !appId || !appSecret) {
+      return res.status(500).json({ error: 'Configuration incomplète' });
+    }
+
+    // Récupérer le token actuel
+    const tokenRes = await fetch(
+      `${supabaseUrl}/rest/v1/social_tokens?account_id=eq.${accountId}&platform=eq.instagram`,
+      { headers: { 'Authorization': `Bearer ${supabaseServiceKey}`, 'apikey': supabaseServiceKey } }
+    );
+    const tokens = await tokenRes.json();
+    if (!tokens?.length) return res.status(404).json({ error: 'Token non trouvé' });
+
+    const currentToken = decryptToken(tokens[0].access_token);
+
+    // Refresh du long-lived token Instagram
+    const refreshRes = await fetch(
+      `https://graph.facebook.com/v19.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${currentToken}`
+    );
+    const refreshData = await refreshRes.json();
+    if (refreshData.error) {
+      return res.status(400).json({ error: `Meta refresh: ${refreshData.error.message}` });
+    }
+
+    const newToken = refreshData.access_token;
+    const expiresIn = refreshData.expires_in || 5184000;
+    const encryptedToken = encryptToken(newToken);
+    const tokenExpiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
+
+    // Mettre à jour en base
+    await fetch(
+      `${supabaseUrl}/rest/v1/social_tokens?account_id=eq.${accountId}&platform=eq.instagram`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${supabaseServiceKey}`,
+          'apikey': supabaseServiceKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ access_token: encryptedToken, token_expires_at: tokenExpiresAt, updated_at: new Date().toISOString() }),
+      }
+    );
+
+    res.json({ success: true, expiresAt: tokenExpiresAt });
+  } catch (error) {
+    console.error('Erreur refresh token:', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Erreur inconnue' });
+  }
 });
 
 // ========================================
