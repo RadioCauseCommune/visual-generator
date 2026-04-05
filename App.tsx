@@ -220,6 +220,10 @@ const App: React.FC = () => {
     const pAssetType = project.assetType || project.asset_type;
     const pLayers = project.layers;
 
+    // Synchroniser prevAssetType avant setAssetType pour éviter que le useEffect
+    // appelle adaptLayersToFormat sur des layers déjà dans le bon format.
+    prevAssetType.current = pAssetType;
+
     setAssetType(pAssetType);
     setLayers(pLayers);
     setMeta({
