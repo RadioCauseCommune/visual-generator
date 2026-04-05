@@ -442,14 +442,20 @@ app.post('/api/social/instagram/oauth/initiate', apiLimiter, async (req, res) =>
   try {
     const appId = process.env.META_APP_ID;
     const redirectUri = process.env.META_OAUTH_REDIRECT_URI;
+    const supabaseServiceKeyInit = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrlInit = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
     if (!appId || !redirectUri) {
       return res.status(500).json({ error: 'META_APP_ID ou META_OAUTH_REDIRECT_URI manquant' });
     }
 
+    const userIdInit = (supabaseServiceKeyInit && supabaseUrlInit)
+      ? await getSupabaseUserId(req.headers.authorization, supabaseUrlInit, supabaseServiceKeyInit)
+      : null;
+
     // Générer un state PKCE anti-CSRF
     const state = crypto.randomBytes(16).toString('hex');
     cleanExpiredStates();
-    oauthStateStore.set(state, { expiresAt: Date.now() + 10 * 60 * 1000 });
+    oauthStateStore.set(state, { expiresAt: Date.now() + 10 * 60 * 1000, userId: userIdInit });
 
     const params = new URLSearchParams({
       client_id: appId,
@@ -479,6 +485,7 @@ app.get('/api/social/instagram/oauth/callback', async (req, res) => {
     if (!state || !oauthStateStore.has(state)) {
       return res.status(400).send('State OAuth invalide ou expiré');
     }
+    const { userId: igStateUserId } = oauthStateStore.get(state);
     oauthStateStore.delete(state);
 
     const appId = process.env.META_APP_ID;
@@ -538,6 +545,7 @@ app.get('/api/social/instagram/oauth/callback', async (req, res) => {
           'Prefer': 'resolution=merge-duplicates',
         },
         body: JSON.stringify({
+          ...(igStateUserId ? { user_id: igStateUserId } : {}),
           account_id: ig.accountId,
           account_name: ig.accountName,
           platform: 'instagram',
@@ -859,13 +867,20 @@ app.post('/api/social/linkedin/oauth/initiate', apiLimiter, async (req, res) => 
   try {
     const clientId = process.env.LINKEDIN_CLIENT_ID;
     const redirectUri = process.env.LINKEDIN_OAUTH_REDIRECT_URI;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
     if (!clientId || !redirectUri) {
       return res.status(500).json({ error: 'LINKEDIN_CLIENT_ID ou LINKEDIN_OAUTH_REDIRECT_URI manquant' });
     }
 
+    // Récupérer l'user_id depuis le Bearer token pour l'associer au token OAuth stocké
+    const userId = (supabaseServiceKey && supabaseUrl)
+      ? await getSupabaseUserId(req.headers.authorization, supabaseUrl, supabaseServiceKey)
+      : null;
+
     const state = crypto.randomBytes(16).toString('hex');
     cleanExpiredStates();
-    oauthStateStore.set(state, { expiresAt: Date.now() + 10 * 60 * 1000 });
+    oauthStateStore.set(state, { expiresAt: Date.now() + 10 * 60 * 1000, userId });
 
     const params = new URLSearchParams({
       response_type: 'code',
@@ -894,6 +909,7 @@ app.get('/api/social/linkedin/oauth/callback', async (req, res) => {
     if (!state || !oauthStateStore.has(state)) {
       return res.status(400).send('State OAuth invalide ou expiré');
     }
+    const { userId: stateUserId } = oauthStateStore.get(state);
     oauthStateStore.delete(state);
 
     const clientId = process.env.LINKEDIN_CLIENT_ID;
@@ -947,6 +963,7 @@ app.get('/api/social/linkedin/oauth/callback', async (req, res) => {
         'Prefer': 'resolution=merge-duplicates',
       },
       body: JSON.stringify({
+        ...(stateUserId ? { user_id: stateUserId } : {}),
         account_id: linkedinId,
         account_name: accountName,
         platform: 'linkedin',

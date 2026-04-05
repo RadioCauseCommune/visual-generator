@@ -19,7 +19,8 @@ async function getAuthHeader(): Promise<Record<string, string>> {
  * Redirige vers LinkedIn puis revient sur /?social_connected=linkedin
  */
 export async function initiateLinkedInOAuth(): Promise<void> {
-  const res = await fetch('/api/social/linkedin/oauth/initiate', { method: 'POST' });
+  const authHeaders = await getAuthHeader();
+  const res = await fetch('/api/social/linkedin/oauth/initiate', { method: 'POST', headers: authHeaders });
   if (!res.ok) throw new Error('Impossible d\'initier la connexion LinkedIn');
   const { authUrl } = await res.json();
   window.location.href = authUrl;
