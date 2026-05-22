@@ -45,6 +45,7 @@ export async function publishToLinkedIn(
     options.hashtags.length > 0
       ? '\n\n' + options.hashtags.map(h => h.startsWith('#') ? h : `#${h}`).join(' ')
       : '',
+    options.altText ? `\n\n[Description de l'image : ${options.altText}]` : '',
   ].filter(Boolean).join('');
 
   const res = await fetch('/api/social/linkedin/publish', {

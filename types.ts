@@ -159,6 +159,8 @@ export interface PublishOptions {
   caption: string;
   hashtags: string[];
   accountId: string; // 'default' pour le compte Radio Cause Commune
+  altText?: string;
+  userTags?: { username: string; x: number; y: number }[];
 }
 
 export interface SocialAccount {

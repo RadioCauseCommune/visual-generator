@@ -63,10 +63,11 @@ export async function publishToInstagram(
     return { success: false, error: `Upload image: ${e instanceof Error ? e.message : 'Erreur'}` };
   }
 
-  // 2. Construire la caption finale (texte + hashtags)
+  // 2. Construire la caption finale (texte + hashtags + altText)
   const captionWithHashtags = [
     options.caption,
     options.hashtags.length > 0 ? '\n\n' + options.hashtags.map(h => h.startsWith('#') ? h : `#${h}`).join(' ') : '',
+    options.altText ? `\n\n[Description de l'image : ${options.altText}]` : '',
   ].filter(Boolean).join('');
 
   // 3. Appel publication via Express
@@ -78,6 +79,7 @@ export async function publishToInstagram(
       caption: captionWithHashtags,
       accountId: options.accountId,
       storagePath,
+      userTags: options.userTags,
     }),
   });
 
@@ -98,4 +100,61 @@ export async function getInstagramAccounts(): Promise<SocialAccount[]> {
   if (!res.ok) return [];
   const { accounts } = await res.json();
   return (accounts as SocialAccount[]).filter(a => a.platform === 'instagram');
+}
+
+// ── Methodes Modération Instagram ─────────────────────────────────────────────
+
+export async function getInstagramMedia(accountId: string) {
+  const res = await fetch(`/api/social/instagram/media?accountId=${accountId}`);
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.error || 'Erreur lors de la récupération des posts');
+  }
+  return res.json();
+}
+
+export async function getInstagramComments(mediaId: string, accountId: string) {
+  const res = await fetch(`/api/social/instagram/media/${mediaId}/comments?accountId=${accountId}`);
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.error || 'Erreur lors de la récupération des commentaires');
+  }
+  return res.json();
+}
+
+export async function replyToInstagramComment(commentId: string, accountId: string, message: string) {
+  const res = await fetch(`/api/social/instagram/comments/${commentId}/reply`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ accountId, message })
+  });
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.error || 'Erreur lors de la réponse au commentaire');
+  }
+  return res.json();
+}
+
+export async function toggleHideInstagramComment(commentId: string, accountId: string, hide: boolean) {
+  const res = await fetch(`/api/social/instagram/comments/${commentId}/hide`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ accountId, hide })
+  });
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.error || 'Erreur lors du masquage/démasquage du commentaire');
+  }
+  return res.json();
+}
+
+export async function deleteInstagramComment(commentId: string, accountId: string) {
+  const res = await fetch(`/api/social/instagram/comments/${commentId}?accountId=${accountId}`, {
+    method: 'DELETE'
+  });
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.error || 'Erreur lors de la suppression du commentaire');
+  }
+  return res.json();
 }

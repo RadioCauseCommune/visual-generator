@@ -12,6 +12,7 @@ interface HeaderProps {
     onBatchExport: () => void;
     onQuickSave: () => void;
     onOpenGallery: () => void;
+    onOpenInstagramModeration: () => void;
     canUndo: boolean;
     canRedo: boolean;
     onUndo: () => void;
@@ -25,7 +26,7 @@ interface HeaderProps {
 
 const Header: React.FC<HeaderProps> = ({
     onImportProject, onExportProject, onExportImage, onExportSvg,
-    onBatchExport, onQuickSave, onOpenGallery,
+    onBatchExport, onQuickSave, onOpenGallery, onOpenInstagramModeration,
     canUndo, canRedo, onUndo, onRedo,
     user, onLogin, onLogout,
     viewMode, setViewMode
@@ -78,17 +79,18 @@ const Header: React.FC<HeaderProps> = ({
                     <div className="relative group">
                         <button className="bg-white text-black neo-border-fine neo-shadow-sm neo-active font-roboto-condensed font-black px-4 py-1 uppercase flex items-center gap-2 group-hover:bg-[#00F0FF] transition-colors">
                             Projet <span className="text-[10px]">▼</span>
-                        </button>
-                        <div className="absolute hidden group-hover:block pt-2 left-0 min-w-[200px] z-[100] animate-in text-black">
-                            <div className="bg-white neo-border-fine neo-shadow flex flex-col overflow-hidden">
-                                {user && (
-                                    <div className="px-4 py-2 bg-gray-100 border-b-2 border-black">
-                                        <p className="text-[10px] font-black uppercase opacity-60">Session</p>
-                                        <p className="text-xs font-bold truncate">{user.email}</p>
-                                    </div>
-                                )}
-                                <button onClick={onOpenGallery} className="w-full text-left px-4 py-2 hover:bg-[#00F0FF] font-roboto-condensed font-bold uppercase text-sm border-b-2 border-black transition-colors">Mes Projets</button>
-                                <button onClick={onQuickSave} className="w-full text-left px-4 py-2 bg-[#A3FF00] hover:bg-[#8ee000] font-roboto-condensed font-bold uppercase text-sm border-b-2 border-black transition-colors">Sauvegarder</button>
+                                </button>
+                                <div className="absolute hidden group-hover:block pt-2 left-0 min-w-[200px] z-[100] animate-in text-black">
+                                    <div className="bg-white neo-border-fine neo-shadow flex flex-col overflow-hidden">
+                                        {user && (
+                                            <div className="px-4 py-2 bg-gray-100 border-b-2 border-black">
+                                                <p className="text-[10px] font-black uppercase opacity-60">Session</p>
+                                                <p className="text-xs font-bold truncate">{user.email}</p>
+                                            </div>
+                                        )}
+                                        <button onClick={onOpenGallery} className="w-full text-left px-4 py-2 hover:bg-[#00F0FF] font-roboto-condensed font-bold uppercase text-sm border-b-2 border-black transition-colors">Mes Projets</button>
+                                        <button onClick={onQuickSave} className="w-full text-left px-4 py-2 bg-[#A3FF00] hover:bg-[#8ee000] font-roboto-condensed font-bold uppercase text-sm border-b-2 border-black transition-colors">Sauvegarder</button>
+                                        <button onClick={onOpenInstagramModeration} className="w-full text-left px-4 py-2 hover:bg-[#ff0080] hover:text-white text-[#D20A33] font-roboto-condensed font-bold uppercase text-sm border-b-2 border-black transition-colors">Modération Instagram</button>
                                 {user ? (
                                     <button onClick={onLogout} className="w-full text-left px-4 py-2 hover:bg-red-500 hover:text-white font-roboto-condensed font-bold uppercase text-sm border-b-2 border-black transition-colors">Déconnexion</button>
                                 ) : (

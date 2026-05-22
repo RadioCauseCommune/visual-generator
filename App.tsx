@@ -26,6 +26,7 @@ import RssImporter from './components/Editor/RssImporter';
 import { RssEpisode } from './services/rssService';
 import GreetingsGenerator from './components/Greetings/GreetingsGenerator';
 import { ViewMode } from './components/UI/Header';
+import InstagramModeration from './components/UI/InstagramModeration';
 
 const App: React.FC = () => {
   const { toasts, removeToast, error: showError, success } = useToasts();
@@ -164,6 +165,7 @@ const App: React.FC = () => {
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
   const [isBatchExportOpen, setIsBatchExportOpen] = useState(false);
   const [isInpaintingOpen, setIsInpaintingOpen] = useState(false);
+  const [isInstagramModerationOpen, setIsInstagramModerationOpen] = useState(false);
   const [inpaintingLayer, setInpaintingLayer] = useState<Layer | null>(null);
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 });
   const [isBatching, setIsBatching] = useState(false);
@@ -337,6 +339,7 @@ const App: React.FC = () => {
           onBatchExport={() => setIsBatchExportOpen(true)}
           onQuickSave={handleQuickSave}
           onOpenGallery={() => setIsGalleryOpen(true)}
+          onOpenInstagramModeration={() => setIsInstagramModerationOpen(true)}
           canUndo={canUndo}
           canRedo={canRedo}
           onUndo={handleUndo}
@@ -429,6 +432,12 @@ const App: React.FC = () => {
           onClose={() => setIsAuthOpen(false)}
           onSuccess={() => { }}
         />
+        {isInstagramModerationOpen && (
+          <InstagramModeration 
+            onClose={() => setIsInstagramModerationOpen(false)} 
+            user={user} 
+          />
+        )}
       </div>
 
       {isInpaintingOpen && inpaintingLayer && (

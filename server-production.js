@@ -498,7 +498,7 @@ app.post('/api/social/instagram/oauth/initiate', apiLimiter, async (req, res) =>
     const params = new URLSearchParams({
       client_id: appId,
       redirect_uri: redirectUri,
-      scope: 'instagram_basic,instagram_content_publish,pages_read_engagement,pages_show_list',
+      scope: 'instagram_basic,instagram_content_publish,pages_read_engagement,pages_show_list,instagram_manage_comments,instagram_manage_engagement',
       response_type: 'code',
       state,
     });
@@ -654,7 +654,7 @@ app.post('/api/social/instagram/publish', apiLimiter, async (req, res) => {
     const userId = await verifyAuthOrReject(req, res);
     if (!userId) return;
 
-    const { imageUrl, caption, accountId, storagePath } = req.body;
+    const { imageUrl, caption, accountId, storagePath, userTags } = req.body;
     if (!imageUrl || caption === undefined) {
       return res.status(400).json({ error: 'imageUrl et caption requis' });
     }
@@ -692,14 +692,20 @@ app.post('/api/social/instagram/publish', apiLimiter, async (req, res) => {
     }
 
     // Étape 1 : Créer un media container Instagram
+    const containerBody = {
+      image_url: imageUrl,
+      caption: caption || '',
+      access_token: accessToken,
+    };
+
+    if (userTags && Array.isArray(userTags) && userTags.length > 0) {
+      containerBody.user_tags = JSON.stringify(userTags);
+    }
+
     const containerRes = await fetch(`https://graph.facebook.com/v19.0/${igAccountId}/media`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        image_url: imageUrl,
-        caption: caption || '',
-        access_token: accessToken,
-      }),
+      body: JSON.stringify(containerBody),
     });
     const containerData = await containerRes.json();
     if (containerData.error) {
@@ -889,6 +895,175 @@ app.post('/api/social/token/refresh', apiLimiter, async (req, res) => {
     res.json({ success: true, expiresAt: tokenExpiresAt });
   } catch (error) {
     console.error('Erreur refresh token:', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Erreur inconnue' });
+  }
+});
+
+// ── Helper : résoudre le token Instagram ──────────────────────────────────────
+async function resolveInstagramToken(accountId, supabaseServiceKey, supabaseUrl) {
+  if (!accountId || accountId === 'default') {
+    const token = process.env.META_DEFAULT_ACCESS_TOKEN;
+    const igAccountId = process.env.META_DEFAULT_INSTAGRAM_ACCOUNT_ID;
+    if (!token || !igAccountId) throw new Error('Compte Instagram par défaut non configuré');
+    return { token, igAccountId };
+  } else {
+    const tokenRes = await fetch(
+      `${supabaseUrl}/rest/v1/social_tokens?account_id=eq.${accountId}&platform=eq.instagram&select=access_token,token_expires_at`,
+      { headers: { 'Authorization': `Bearer ${supabaseServiceKey}`, 'apikey': supabaseServiceKey } }
+    );
+    const tokens = await tokenRes.json();
+    if (!tokens?.length) throw new Error('Compte Instagram non trouvé');
+    const tokenRecord = tokens[0];
+    if (tokenRecord.token_expires_at && new Date(tokenRecord.token_expires_at) < new Date()) {
+      throw new Error('Token Instagram expiré, veuillez reconnecter votre compte');
+    }
+    return { token: decryptToken(tokenRecord.access_token), igAccountId: accountId };
+  }
+}
+
+// ── Récupérer les médias récents (Modération) ─────────────────────────────────
+app.get('/api/social/instagram/media', apiLimiter, async (req, res) => {
+  try {
+    const accountId = req.query.accountId;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+
+    if (!supabaseServiceKey || !supabaseUrl) {
+      return res.status(500).json({ error: 'Configuration Supabase manquante' });
+    }
+
+    const { token, igAccountId } = await resolveInstagramToken(accountId, supabaseServiceKey, supabaseUrl);
+
+    // Fetch les derniers médias (id, caption, media_url, media_type, thumbnail_url, timestamp, permalink)
+    const mediaRes = await fetch(
+      `https://graph.facebook.com/v19.0/${igAccountId}/media?fields=id,caption,media_url,media_type,thumbnail_url,timestamp,permalink&limit=5&access_token=${token}`
+    );
+    const mediaData = await mediaRes.json();
+
+    if (mediaData.error) {
+      return res.status(400).json({ error: `Meta API: ${mediaData.error.message}` });
+    }
+
+    res.json({ data: mediaData.data });
+  } catch (error) {
+    console.error('Erreur fetch media Instagram:', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Erreur inconnue' });
+  }
+});
+
+// ── Récupérer les commentaires d'un média ─────────────────────────────────────
+app.get('/api/social/instagram/media/:mediaId/comments', apiLimiter, async (req, res) => {
+  try {
+    const { mediaId } = req.params;
+    const accountId = req.query.accountId;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+
+    const { token } = await resolveInstagramToken(accountId, supabaseServiceKey, supabaseUrl);
+
+    // Fetch des commentaires
+    const commentsRes = await fetch(
+      `https://graph.facebook.com/v19.0/${mediaId}/comments?fields=id,text,username,timestamp,like_count,hidden,replies{id,text,username,timestamp,like_count,hidden}&access_token=${token}`
+    );
+    const commentsData = await commentsRes.json();
+
+    if (commentsData.error) {
+      return res.status(400).json({ error: `Meta API: ${commentsData.error.message}` });
+    }
+
+    res.json({ data: commentsData.data });
+  } catch (error) {
+    console.error('Erreur fetch comments Instagram:', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Erreur inconnue' });
+  }
+});
+
+// ── Répondre à un commentaire ─────────────────────────────────────────────────
+app.post('/api/social/instagram/comments/:commentId/reply', apiLimiter, async (req, res) => {
+  try {
+    const { commentId } = req.params;
+    const { accountId, message } = req.body;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+
+    if (!message) return res.status(400).json({ error: 'Message requis' });
+
+    const { token } = await resolveInstagramToken(accountId, supabaseServiceKey, supabaseUrl);
+
+    const replyRes = await fetch(
+      `https://graph.facebook.com/v19.0/${commentId}/replies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, access_token: token })
+      }
+    );
+    const replyData = await replyRes.json();
+
+    if (replyData.error) {
+      return res.status(400).json({ error: `Meta API: ${replyData.error.message}` });
+    }
+
+    res.json({ success: true, id: replyData.id });
+  } catch (error) {
+    console.error('Erreur reply comment Instagram:', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Erreur inconnue' });
+  }
+});
+
+// ── Masquer/Démasquer un commentaire ──────────────────────────────────────────
+app.post('/api/social/instagram/comments/:commentId/hide', apiLimiter, async (req, res) => {
+  try {
+    const { commentId } = req.params;
+    const { accountId, hide } = req.body; // boolean
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+
+    const { token } = await resolveInstagramToken(accountId, supabaseServiceKey, supabaseUrl);
+
+    const hideRes = await fetch(
+      `https://graph.facebook.com/v19.0/${commentId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hide: hide !== false, access_token: token })
+      }
+    );
+    const hideData = await hideRes.json();
+
+    if (hideData.error) {
+      return res.status(400).json({ error: `Meta API: ${hideData.error.message}` });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Erreur hide comment Instagram:', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Erreur inconnue' });
+  }
+});
+
+// ── Supprimer un commentaire ──────────────────────────────────────────────────
+app.delete('/api/social/instagram/comments/:commentId', apiLimiter, async (req, res) => {
+  try {
+    const { commentId } = req.params;
+    const accountId = req.query.accountId;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+
+    const { token } = await resolveInstagramToken(accountId, supabaseServiceKey, supabaseUrl);
+
+    const delRes = await fetch(
+      `https://graph.facebook.com/v19.0/${commentId}?access_token=${token}`, {
+        method: 'DELETE'
+      }
+    );
+    const delData = await delRes.json();
+
+    if (delData.error) {
+      return res.status(400).json({ error: `Meta API: ${delData.error.message}` });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Erreur delete comment Instagram:', error);
     res.status(500).json({ error: error instanceof Error ? error.message : 'Erreur inconnue' });
   }
 });

@@ -30,9 +30,11 @@ const CaptionHashtagFields: React.FC<{
   hashtags: string[];
   addHashtag: () => void;
   removeHashtag: (tag: string) => void;
+  altText: string;
+  setAltText: (v: string) => void;
   onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   maxLength?: number;
-}> = ({ caption, setCaption, hashtagInput, setHashtagInput, hashtags, addHashtag, removeHashtag, onKeyDown, maxLength = MAX_CAPTION_LENGTH }) => (
+}> = ({ caption, setCaption, hashtagInput, setHashtagInput, hashtags, addHashtag, removeHashtag, altText, setAltText, onKeyDown, maxLength = MAX_CAPTION_LENGTH }) => (
   <>
     <div>
       <label className="block text-xs font-roboto-condensed font-bold uppercase mb-1">
@@ -82,6 +84,18 @@ const CaptionHashtagFields: React.FC<{
         </div>
       )}
     </div>
+    <div className="mt-2">
+      <label className="block text-xs font-roboto-condensed font-bold uppercase mb-1">
+        Texte Alternatif <span className="font-normal text-gray-400">(Accessibilité)</span>
+      </label>
+      <textarea
+        value={altText}
+        onChange={e => setAltText(e.target.value)}
+        rows={2}
+        placeholder="Description de l'image pour les malvoyants..."
+        className="w-full border-2 border-black px-2 py-1 text-sm font-roboto-condensed resize-none focus:outline-none focus:ring-2 focus:ring-[#D20A33]"
+      />
+    </div>
   </>
 );
 
@@ -117,8 +131,11 @@ const InstagramPanel: React.FC<{ captureImage: () => Promise<string | null>; pro
   captureImage, projectId, user
 }) => {
   const [caption, setCaption] = useState('');
+  const [altText, setAltText] = useState('');
   const [hashtagInput, setHashtagInput] = useState('');
   const [hashtags, setHashtags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState('');
+  const [taggedUsers, setTaggedUsers] = useState<string[]>([]);
   const [accounts, setAccounts] = useState<SocialAccount[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState('default');
   const [isPublishing, setIsPublishing] = useState(false);
@@ -157,8 +174,20 @@ const InstagramPanel: React.FC<{ captureImage: () => Promise<string | null>; pro
     setHashtagInput('');
   };
   const removeHashtag = (tag: string) => setHashtags(prev => prev.filter(h => h !== tag));
+
+  const addTag = () => {
+    const tag = tagInput.trim().replace(/^@+/, '');
+    if (tag && !taggedUsers.includes(tag)) setTaggedUsers(prev => [...prev, tag]);
+    setTagInput('');
+  };
+  const removeTag = (tag: string) => setTaggedUsers(prev => prev.filter(t => t !== tag));
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' || e.key === ' ' || e.key === ',') { e.preventDefault(); addHashtag(); }
+  };
+
+  const handleTagKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' || e.key === ' ' || e.key === ',') { e.preventDefault(); addTag(); }
   };
 
   const handlePublish = async () => {
@@ -167,7 +196,14 @@ const InstagramPanel: React.FC<{ captureImage: () => Promise<string | null>; pro
       const dataUrl = await captureImage();
       if (!dataUrl) { setStatus('error'); setResult({ error: 'Impossible de capturer le visuel' }); return; }
       setStatus('publishing');
-      const options: PublishOptions = { caption, hashtags, accountId: selectedAccountId };
+      const userTags = taggedUsers.map(username => ({ username, x: 0.5, y: 0.5 }));
+      const options: PublishOptions = {
+        caption,
+        hashtags,
+        accountId: selectedAccountId,
+        altText: altText.trim() ? altText.trim() : undefined,
+        userTags: userTags.length > 0 ? userTags : undefined
+      };
       const res = await publishVisual('instagram', dataUrl, options, projectId);
       const accountName = accounts.find(a => a.account_id === selectedAccountId)?.account_name || 'Radio Cause Commune';
       await savePublicationRecord('instagram', res, options, accountName, projectId);
@@ -212,7 +248,42 @@ const InstagramPanel: React.FC<{ captureImage: () => Promise<string | null>; pro
         hashtagInput={hashtagInput} setHashtagInput={setHashtagInput}
         hashtags={hashtags} addHashtag={addHashtag}
         removeHashtag={removeHashtag} onKeyDown={handleKeyDown}
+        altText={altText} setAltText={setAltText}
       />
+
+      {/* Tags de comptes */}
+      <div>
+        <label className="block text-xs font-roboto-condensed font-bold uppercase mb-1">Taguer des comptes (@)</label>
+        <div className="flex gap-1 mb-1">
+          <input
+            type="text"
+            value={tagInput}
+            onChange={e => setTagInput(e.target.value)}
+            onKeyDown={handleTagKeyDown}
+            placeholder="nom_utilisateur"
+            className="flex-1 border-2 border-black px-2 py-1 text-sm font-roboto-condensed focus:outline-none focus:ring-2 focus:ring-[#D20A33]"
+          />
+          <button
+            onClick={addTag}
+            className="px-3 border-2 border-black bg-black text-white font-roboto-condensed font-black text-sm hover:bg-[#D20A33] hover:border-[#D20A33] transition-colors"
+          >
+            +
+          </button>
+        </div>
+        {taggedUsers.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {taggedUsers.map(tag => (
+              <span
+                key={tag}
+                className="inline-flex items-center gap-1 bg-[#D20A33] text-white border-2 border-black px-2 py-0.5 text-xs font-roboto-condensed font-bold"
+              >
+                @{tag}
+                <button onClick={() => removeTag(tag)} className="text-white hover:text-black font-black leading-none">×</button>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
 
       <PublishFeedback status={status} postUrl={result?.postUrl} error={result?.error} onReset={() => { setStatus('idle'); setResult(null); }} platformLabel="Instagram" />
 
@@ -237,6 +308,7 @@ const LinkedInPanel: React.FC<{ captureImage: () => Promise<string | null>; proj
   captureImage, projectId, user
 }) => {
   const [caption, setCaption] = useState('');
+  const [altText, setAltText] = useState('');
   const [hashtagInput, setHashtagInput] = useState('');
   const [hashtags, setHashtags] = useState<string[]>([]);
   const [accounts, setAccounts] = useState<SocialAccount[]>([]);
@@ -292,7 +364,7 @@ const LinkedInPanel: React.FC<{ captureImage: () => Promise<string | null>; proj
       const dataUrl = await captureImage();
       if (!dataUrl) { setStatus('error'); setResult({ error: 'Impossible de capturer le visuel' }); return; }
       setStatus('publishing');
-      const options: PublishOptions = { caption, hashtags, accountId: selectedAccountId };
+      const options: PublishOptions = { caption, hashtags, accountId: selectedAccountId, altText: altText.trim() ? altText.trim() : undefined };
       const res = await publishVisual('linkedin', dataUrl, options, projectId);
       const accountName = accounts.find(a => a.account_id === selectedAccountId)?.account_name;
       await savePublicationRecord('linkedin', res, options, accountName, projectId);
@@ -348,6 +420,7 @@ const LinkedInPanel: React.FC<{ captureImage: () => Promise<string | null>; proj
             hashtagInput={hashtagInput} setHashtagInput={setHashtagInput}
             hashtags={hashtags} addHashtag={addHashtag}
             removeHashtag={removeHashtag} onKeyDown={handleKeyDown}
+            altText={altText} setAltText={setAltText}
             maxLength={MAX_LI_CAPTION}
           />
 
