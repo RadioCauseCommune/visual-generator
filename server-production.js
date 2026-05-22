@@ -178,7 +178,6 @@ app.post('/api/huggingface/models/:modelId(*)', apiLimiter, async (req, res) => 
 
       res.status(response.status)
         .set('Content-Type', contentType)
-        .set('Access-Control-Allow-Origin', '*')
         .send(Buffer.from(buffer));
     } finally {
       // S'assurer que le timeout est toujours nettoyé
@@ -212,7 +211,7 @@ app.all('/api/replicate/:path(*)', apiLimiter, async (req, res) => {
       });
     }
 
-    const path = req.params.path;
+    const path = req.params.path.replace(/\.\.[\\/]?/g, '').replace(/\/+/g, '/');
     const targetUrl = `https://api.replicate.com/v1/${path}`;
 
     const response = await fetch(targetUrl, {
@@ -229,7 +228,6 @@ app.all('/api/replicate/:path(*)', apiLimiter, async (req, res) => {
 
     res.status(response.status)
       .set('Content-Type', contentType)
-      .set('Access-Control-Allow-Origin', '*')
       .send(data);
 
   } catch (error) {
@@ -296,13 +294,11 @@ app.all('/api/flux-local/*', apiLimiter, async (req, res) => {
         const buffer = await response.arrayBuffer();
         res.status(response.status)
           .set('Content-Type', contentType)
-          .set('Access-Control-Allow-Origin', '*')
           .send(Buffer.from(buffer));
       } else {
         const data = await response.text();
         res.status(response.status)
           .set('Content-Type', contentType)
-          .set('Access-Control-Allow-Origin', '*')
           .send(data);
       }
     } catch (error) {
@@ -337,12 +333,15 @@ app.get('/api/proxy', async (req, res) => {
       return res.status(400).send('Missing url parameter');
     }
 
+    if (!isAllowedProxyUrl(url)) {
+      return res.status(400).send('URL non autorisée');
+    }
+
     const response = await fetch(url);
     const contentType = response.headers.get('content-type') || 'application/json';
 
     res.status(response.status)
-      .set('Content-Type', contentType)
-      .set('Access-Control-Allow-Origin', '*');
+      .set('Content-Type', contentType);
 
     if (contentType.includes('image')) {
       const buffer = await response.arrayBuffer();
@@ -383,7 +382,10 @@ function encryptToken(plaintext) {
 
 function decryptToken(ciphertext) {
   const key = Buffer.from(process.env.SOCIAL_TOKEN_ENCRYPTION_KEY || '', 'hex');
-  const [ivHex, tagHex, dataHex] = ciphertext.split(':');
+  if (key.length !== 32) throw new Error('SOCIAL_TOKEN_ENCRYPTION_KEY doit être une clé hex de 64 caractères (32 bytes)');
+  const parts = ciphertext.split(':');
+  if (parts.length !== 3) throw new Error('Format de token chiffré invalide');
+  const [ivHex, tagHex, dataHex] = parts;
   const iv = Buffer.from(ivHex, 'hex');
   const tag = Buffer.from(tagHex, 'hex');
   const data = Buffer.from(dataHex, 'hex');
@@ -399,6 +401,42 @@ function cleanExpiredStates() {
   for (const [k, v] of oauthStateStore.entries()) {
     if (now > v.expiresAt) oauthStateStore.delete(k);
   }
+}
+
+// Vérifie le Bearer token Supabase et renvoie l'userId, ou envoie un 401 et retourne null
+async function verifyAuthOrReject(req, res) {
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseUrlEnv = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  if (!supabaseServiceKey || !supabaseUrlEnv) {
+    res.status(500).json({ error: 'Configuration Supabase manquante' });
+    return null;
+  }
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    res.status(401).json({ error: 'Token d\'authentification requis' });
+    return null;
+  }
+  const userToken = authHeader.replace('Bearer ', '');
+  const authRes = await fetch(`${supabaseUrlEnv}/auth/v1/user`, {
+    headers: { 'Authorization': `Bearer ${userToken}`, 'apikey': supabaseServiceKey }
+  });
+  if (!authRes.ok) {
+    res.status(401).json({ error: 'Token invalide' });
+    return null;
+  }
+  const { id: userId } = await authRes.json();
+  return userId || null;
+}
+
+// Valide qu'une URL est http/https et ne pointe pas vers le réseau interne (anti-SSRF)
+function isAllowedProxyUrl(rawUrl) {
+  let parsed;
+  try { parsed = new URL(rawUrl); } catch { return false; }
+  if (!['http:', 'https:'].includes(parsed.protocol)) return false;
+  const host = parsed.hostname;
+  if (/^(localhost$|127\.|0\.0\.0\.0$|10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|169\.254\.)/i.test(host)) return false;
+  if (/^(::1$|fc[0-9a-f]{2}:|fe[89ab][0-9a-f]:)/i.test(host)) return false;
+  return true;
 }
 
 // ── Lister les comptes sociaux connectés ──────────────────────────────────────
@@ -566,6 +604,9 @@ app.get('/api/social/instagram/oauth/callback', async (req, res) => {
 // ── Upload image vers Supabase Storage ────────────────────────────────────────
 app.post('/api/social/instagram/upload-image', apiLimiter, async (req, res) => {
   try {
+    const userId = await verifyAuthOrReject(req, res);
+    if (!userId) return;
+
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
     if (!supabaseServiceKey || !supabaseUrl) {
@@ -610,9 +651,12 @@ app.post('/api/social/instagram/upload-image', apiLimiter, async (req, res) => {
 // ── Publier sur Instagram ─────────────────────────────────────────────────────
 app.post('/api/social/instagram/publish', apiLimiter, async (req, res) => {
   try {
+    const userId = await verifyAuthOrReject(req, res);
+    if (!userId) return;
+
     const { imageUrl, caption, accountId, storagePath } = req.body;
-    if (!imageUrl || !caption === undefined) {
-      return res.status(400).json({ error: 'imageUrl requis' });
+    if (!imageUrl || caption === undefined) {
+      return res.status(400).json({ error: 'imageUrl et caption requis' });
     }
 
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -788,6 +832,9 @@ app.get('/api/social/publications', apiLimiter, async (req, res) => {
 // ── Rafraîchir un token Instagram long-lived ──────────────────────────────────
 app.post('/api/social/token/refresh', apiLimiter, async (req, res) => {
   try {
+    const userId = await verifyAuthOrReject(req, res);
+    if (!userId) return;
+
     const { accountId, platform } = req.body;
     if (!accountId || platform !== 'instagram') {
       return res.status(400).json({ error: 'accountId et platform=instagram requis' });
