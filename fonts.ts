@@ -13,6 +13,10 @@ import '@fontsource/roboto-condensed/700.css';
 import '@fontsource/roboto-condensed/800.css';
 import '@fontsource/roboto-condensed/900.css';
 
+// Roboto - Police pour le corps de texte
+import '@fontsource/roboto/400.css';
+import '@fontsource/roboto/700.css';
+
 // Anton (400)
 import '@fontsource/anton/400.css';
 

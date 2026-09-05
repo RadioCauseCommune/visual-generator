@@ -25,6 +25,7 @@ import InpaintingModal from './components/Editor/InpaintingModal';
 import RssImporter from './components/Editor/RssImporter';
 import { RssEpisode } from './services/rssService';
 import GreetingsGenerator from './components/Greetings/GreetingsGenerator';
+import { CarouselStudio } from './components/Carousel/CarouselStudio';
 import { ViewMode } from './components/UI/Header';
 import InstagramModeration from './components/UI/InstagramModeration';
 
@@ -407,6 +408,8 @@ const App: React.FC = () => {
                 onOpenInpainting={handleOpenInpainting}
               />
             </>
+          ) : viewMode === 'carousels' ? (
+            <CarouselStudio />
           ) : (
             <GreetingsGenerator />
           )}
