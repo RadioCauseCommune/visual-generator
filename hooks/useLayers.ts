@@ -1,13 +1,16 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Layer, LayerRole, AssetType } from '../types';
+import { Layer, LayerRole, AssetType, CompositionLayoutType } from '../types';
 import { DIMENSIONS, LOGOS, COLORS } from '../constants';
 import { TEMPLATES, Template } from '../services/templates';
+import { calculateCompositionLayout, autoSelectBestLayout } from '../utils/compositionLayouts';
 
 export const useLayers = (assetType: AssetType, meta: any) => {
     const [layers, setLayers] = useState<Layer[]>([]);
     const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null);
     const [activeGuides, setActiveGuides] = useState<{ x?: number, y?: number } | null>(null);
+    const [compositionLayout, setCompositionLayout] = useState<CompositionLayoutType>('auto');
+    const [compositionGap, setCompositionGap] = useState<number>(0);
     const clipboard = useRef<Layer | null>(null);
 
     const applyTemplate = useCallback((templateId: string) => {
@@ -21,6 +24,69 @@ export const useLayers = (assetType: AssetType, meta: any) => {
         applyTemplate('standard');
     }, [applyTemplate]);
 
+    const applyCompositionLayout = useCallback((layoutType: CompositionLayoutType, gap: number = compositionGap) => {
+        setCompositionLayout(layoutType);
+        setCompositionGap(gap);
+        const { w, h } = DIMENSIONS[assetType] || { w: 1080, h: 1080 };
+
+        setLayers(prev => {
+            const bgLayers = prev.filter(l => l.role === 'background');
+            if (bgLayers.length === 0) return prev;
+
+            const boxes = calculateCompositionLayout(layoutType, bgLayers.length, w, h, gap);
+            let bgIndex = 0;
+
+            return prev.map(layer => {
+                if (layer.role === 'background') {
+                    const box = boxes[bgIndex] || { x: 0, y: 0, width: w, height: h };
+                    bgIndex++;
+                    return {
+                        ...layer,
+                        x: box.x,
+                        y: box.y,
+                        width: box.width,
+                        height: box.height,
+                    };
+                }
+                return layer;
+            });
+        });
+    }, [assetType, compositionGap]);
+
+    const reorderBackgroundLayers = useCallback((fromIndex: number, toIndex: number) => {
+        const { w, h } = DIMENSIONS[assetType] || { w: 1080, h: 1080 };
+        setLayers(prev => {
+            const bgLayers = prev.filter(l => l.role === 'background');
+            if (fromIndex < 0 || fromIndex >= bgLayers.length || toIndex < 0 || toIndex >= bgLayers.length) {
+                return prev;
+            }
+
+            const reorderedBgs = [...bgLayers];
+            const [moved] = reorderedBgs.splice(fromIndex, 1);
+            reorderedBgs.splice(toIndex, 0, moved);
+
+            const boxes = calculateCompositionLayout(compositionLayout, reorderedBgs.length, w, h, compositionGap);
+
+            let bgIdx = 0;
+            const updatedBgs = reorderedBgs.map((l, i) => ({
+                ...l,
+                x: boxes[i]?.x ?? l.x,
+                y: boxes[i]?.y ?? l.y,
+                width: boxes[i]?.width ?? l.width,
+                height: boxes[i]?.height ?? l.height,
+            }));
+
+            return prev.map(l => {
+                if (l.role === 'background') {
+                    const newLayer = updatedBgs[bgIdx];
+                    bgIdx++;
+                    return newLayer || l;
+                }
+                return l;
+            });
+        });
+    }, [assetType, compositionLayout, compositionGap]);
+
     const adaptLayersToFormat = useCallback((prevType: AssetType, newType: AssetType) => {
         const oldDim = DIMENSIONS[prevType];
         const newDim = DIMENSIONS[newType];
@@ -33,44 +99,72 @@ export const useLayers = (assetType: AssetType, meta: any) => {
         const limitScale = Math.min(scaleX, scaleY);
         const fontScale = limitScale;
 
-        setLayers(prevLayers => prevLayers.map(layer => {
-            // Calculate new position (relative percentage based) causes less drift than raw scaling
-            // But here we use raw scaling based on previous dimensions
-            const centerX = layer.x + layer.width / 2;
-            const centerY = layer.y + layer.height / 2;
+        setLayers(prevLayers => {
+            const bgLayers = prevLayers.filter(l => l.role === 'background');
+            let boxes: Array<{ x: number; y: number; width: number; height: number }> = [];
 
-            const newCenterX = centerX * scaleX;
-            const newCenterY = centerY * scaleY;
-
-            let newWidth = layer.width * scaleX;
-            let newHeight = layer.height * scaleY;
-
-            // For text and circular images, we might want to maintain aspect ratio more strictly
-            // or at least ensure font size scales logically
-            let newFontSize = layer.fontSize ? layer.fontSize * fontScale : undefined;
-
-            if (layer.type === 'text') {
-                // Text width usually needs to adapt to width to avoid wrapping weirdly
-                // But simply scaling width is decent for a start
+            if (bgLayers.length > 1) {
+                const targetLayout = compositionLayout === 'auto'
+                    ? autoSelectBestLayout(newType, bgLayers.length)
+                    : compositionLayout;
+                boxes = calculateCompositionLayout(targetLayout, bgLayers.length, newDim.w, newDim.h, compositionGap);
             }
 
-            if (layer.clipShape === 'circle') {
-                // Keep circles circular
-                const size = Math.min(newWidth, newHeight);
-                newWidth = size;
-                newHeight = size;
-            }
+            let bgIndex = 0;
 
-            return {
-                ...layer,
-                x: newCenterX - newWidth / 2,
-                y: newCenterY - newHeight / 2,
-                width: newWidth,
-                height: newHeight,
-                fontSize: newFontSize
-            };
-        }));
-    }, []);
+            return prevLayers.map(layer => {
+                if (layer.role === 'background') {
+                    if (bgLayers.length === 1) {
+                        return {
+                            ...layer,
+                            x: 0,
+                            y: 0,
+                            width: newDim.w,
+                            height: newDim.h,
+                        };
+                    }
+                    const box = boxes[bgIndex];
+                    bgIndex++;
+                    if (box) {
+                        return {
+                            ...layer,
+                            x: box.x,
+                            y: box.y,
+                            width: box.width,
+                            height: box.height,
+                        };
+                    }
+                }
+
+                // Calculate new position (relative percentage based) causes less drift than raw scaling
+                const centerX = layer.x + layer.width / 2;
+                const centerY = layer.y + layer.height / 2;
+
+                const newCenterX = centerX * scaleX;
+                const newCenterY = centerY * scaleY;
+
+                let newWidth = layer.width * scaleX;
+                let newHeight = layer.height * scaleY;
+
+                let newFontSize = layer.fontSize ? layer.fontSize * fontScale : undefined;
+
+                if (layer.clipShape === 'circle') {
+                    const size = Math.min(newWidth, newHeight);
+                    newWidth = size;
+                    newHeight = size;
+                }
+
+                return {
+                    ...layer,
+                    x: newCenterX - newWidth / 2,
+                    y: newCenterY - newHeight / 2,
+                    width: newWidth,
+                    height: newHeight,
+                    fontSize: newFontSize
+                };
+            });
+        });
+    }, [compositionLayout, compositionGap]);
 
 
     const syncLayersWithMeta = useCallback(() => {
@@ -259,6 +353,12 @@ export const useLayers = (assetType: AssetType, meta: any) => {
         copyLayer,
         pasteLayer,
         applyTemplate,
-        adaptLayersToFormat
+        adaptLayersToFormat,
+        compositionLayout,
+        setCompositionLayout,
+        compositionGap,
+        setCompositionGap,
+        applyCompositionLayout,
+        reorderBackgroundLayers
     };
 };

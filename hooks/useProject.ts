@@ -6,6 +6,13 @@ import { AssetType, Layer, ProjectExport, LayerRole } from '../types';
 import { DIMENSIONS, FONTS } from '../constants';
 import { calculateCanvasScale } from '../utils/canvasUtils';
 import { validateFile } from '../utils/fileValidation';
+import { autoSelectBestLayout, calculateCompositionLayout } from '../utils/compositionLayouts';
+
+interface LoadedImageInfo {
+    url: string;
+    naturalWidth: number;
+    naturalHeight: number;
+}
 
 export const useProject = (
     assetType: AssetType,
@@ -285,75 +292,139 @@ export const useProject = (
         reader.readAsText(file);
     }, [setAssetType, setLayers, setMeta, showError]);
 
-    const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>, role: LayerRole) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
+    const readImageData = useCallback((file: File): Promise<{ url: string; naturalWidth: number; naturalHeight: number }> => {
+        return new Promise((resolve, reject) => {
+            const validation = validateFile(file);
+            if (!validation.isValid) {
+                reject(new Error(validation.error || "Fichier non valide"));
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                const url = ev.target?.result as string;
+                const img = new Image();
+                img.onload = () => resolve({ url, naturalWidth: img.naturalWidth, naturalHeight: img.naturalHeight });
+                img.onerror = () => reject(new Error("Erreur de décodage de l'image"));
+                img.src = url;
+            };
+            reader.onerror = () => reject(new Error("Erreur de lecture du fichier"));
+            reader.readAsDataURL(file);
+        });
+    }, []);
 
-        const validation = validateFile(file);
-        if (!validation.isValid) {
-            showError(validation.error!);
-            return;
-        }
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-            const url = ev.target?.result as string;
-            const img = new Image();
-            img.onload = () => {
-                const { w, h } = DIMENSIONS[assetType];
-                const naturalWidth = img.naturalWidth;
-                const naturalHeight = img.naturalHeight;
-                const imageAspectRatio = naturalWidth / naturalHeight;
+    const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>, role: LayerRole) => {
+        const rawFiles = e.target.files;
+        if (!rawFiles || rawFiles.length === 0) return;
+        const files = Array.from(rawFiles);
+        const { w, h } = DIMENSIONS[assetType];
 
-                if (role === 'background') {
-                    const existingBackground = layers.find(l => l.role === 'background');
-                    if (existingBackground) {
+        // --- GESTION BACKGROUND MULTI-IMAGES OU SIMPLE ---
+        if (role === 'background') {
+            try {
+                const loadedImages: LoadedImageInfo[] = await Promise.all(files.map(f => readImageData(f)));
+                if (loadedImages.length === 0) return;
+
+                if (loadedImages.length === 1) {
+                    const img = loadedImages[0];
+                    const existingBackgrounds = layers.filter(l => l.role === 'background');
+
+                    if (existingBackgrounds.length === 1) {
+                        // Remplacement simple de l'unique fond
                         setLayers(prev => prev.map(l => l.role === 'background' ? {
                             ...l,
-                            content: url,
-                            imageNaturalWidth: naturalWidth,
-                            imageNaturalHeight: naturalHeight,
+                            content: img.url,
+                            imageNaturalWidth: img.naturalWidth,
+                            imageNaturalHeight: img.naturalHeight,
                             imageOffsetX: l.imageOffsetX ?? 50,
-                            imageOffsetY: l.imageOffsetY ?? 50
+                            imageOffsetY: l.imageOffsetY ?? 50,
+                            imageScale: 100
                         } : l));
                     } else {
+                        // Remplace tout le fond par une seule image plein écran
+                        const nonBgLayers = layers.filter(l => l.role !== 'background');
                         const newLayer: Layer = {
                             id: Math.random().toString(36).substr(2, 9),
-                            role: 'background', type: 'image', content: url,
+                            role: 'background',
+                            type: 'image',
+                            content: img.url,
                             x: 0, y: 0, width: w, height: h,
                             zIndex: 0, rotation: 0,
+                            imageNaturalWidth: img.naturalWidth,
+                            imageNaturalHeight: img.naturalHeight,
+                            imageOffsetX: 50,
+                            imageOffsetY: 50,
+                            imageScale: 100
+                        };
+                        setLayers([newLayer, ...nonBgLayers]);
+                    }
+                } else {
+                    // Plusieurs images : création d'une composition
+                    const layoutType = autoSelectBestLayout(assetType, loadedImages.length);
+                    const boxes = calculateCompositionLayout(layoutType, loadedImages.length, w, h, 0);
+
+                    const newBgLayers: Layer[] = loadedImages.map((img, i) => ({
+                        id: Math.random().toString(36).substr(2, 9),
+                        role: 'background',
+                        type: 'image',
+                        content: img.url,
+                        x: boxes[i]?.x ?? 0,
+                        y: boxes[i]?.y ?? 0,
+                        width: boxes[i]?.width ?? w,
+                        height: boxes[i]?.height ?? h,
+                        zIndex: i,
+                        rotation: 0,
+                        imageNaturalWidth: img.naturalWidth,
+                        imageNaturalHeight: img.naturalHeight,
+                        imageOffsetX: 50,
+                        imageOffsetY: 50,
+                        imageScale: 100
+                    }));
+
+                    const nonBgLayers = layers.filter(l => l.role !== 'background');
+                    setLayers([...newBgLayers, ...nonBgLayers]);
+                    if (newBgLayers[0]) {
+                        setSelectedLayerId(newBgLayers[0].id);
+                    }
+                }
+            } catch (err: any) {
+                showError(err.message || "Erreur lors du chargement des images de fond.");
+            }
+            return;
+        }
+
+        // --- GESTION AUTRES ROLES (guest_photo, logo, manual) ---
+        for (const file of files) {
+            try {
+                const { url, naturalWidth, naturalHeight }: LoadedImageInfo = await readImageData(file);
+                const imageAspectRatio = naturalWidth / naturalHeight;
+
+                if (role === 'guest_photo') {
+                    setLayers(prev => {
+                        const existingCount = prev.filter(l => l.role === 'guest_photo').length;
+                        const offset = existingCount * 30;
+                        const targetSize = Math.min(w * 0.4, h * 0.4, 500);
+                        let layerWidth = targetSize;
+                        let layerHeight = targetSize;
+
+                        if (imageAspectRatio > 1) {
+                            layerHeight = targetSize / imageAspectRatio;
+                        } else {
+                            layerWidth = targetSize * imageAspectRatio;
+                        }
+
+                        const newLayer: Layer = {
+                            id: Math.random().toString(36).substr(2, 9),
+                            role: 'guest_photo', type: 'image', content: url,
+                            x: w * 0.65 + offset, y: h * 0.15 + offset, width: layerWidth, height: layerHeight,
+                            zIndex: 8 + existingCount, rotation: 0, clipShape: 'circle',
                             imageNaturalWidth: naturalWidth,
                             imageNaturalHeight: naturalHeight,
                             imageOffsetX: 50,
                             imageOffsetY: 50
                         };
-                        setLayers(prev => [newLayer, ...prev]);
-                    }
-                } else if (role === 'guest_photo') {
-                    // Toujours créer un nouveau layer guest_photo (support multi-invités)
-                    const existingCount = layers.filter(l => l.role === 'guest_photo').length;
-                    const offset = existingCount * 30;
-                    const targetSize = Math.min(w * 0.4, h * 0.4, 500);
-                    let layerWidth = targetSize;
-                    let layerHeight = targetSize;
-
-                    if (imageAspectRatio > 1) {
-                        layerHeight = targetSize / imageAspectRatio;
-                    } else {
-                        layerWidth = targetSize * imageAspectRatio;
-                    }
-
-                    const newLayer: Layer = {
-                        id: Math.random().toString(36).substr(2, 9),
-                        role: 'guest_photo', type: 'image', content: url,
-                        x: w * 0.65 + offset, y: h * 0.15 + offset, width: layerWidth, height: layerHeight,
-                        zIndex: 8 + existingCount, rotation: 0, clipShape: 'circle',
-                        imageNaturalWidth: naturalWidth,
-                        imageNaturalHeight: naturalHeight,
-                        imageOffsetX: 50,
-                        imageOffsetY: 50
-                    };
-                    setLayers(prev => [...prev, newLayer]);
-                    setSelectedLayerId(newLayer.id);
+                        setSelectedLayerId(newLayer.id);
+                        return [...prev, newLayer];
+                    });
                 } else if (role === 'logo') {
                     const targetSize = Math.max(100, Math.min(w * 0.15, 300));
                     const newLayer: Layer = {
@@ -396,11 +467,108 @@ export const useProject = (
                     setLayers(prev => [...prev, newLayer]);
                     setSelectedLayerId(newLayer.id);
                 }
-            };
-            img.src = url;
-        };
-        reader.readAsDataURL(file);
-    }, [assetType, layers, setLayers, setSelectedLayerId, showError]);
+            } catch (err: any) {
+                showError(err.message || "Erreur de chargement de fichier.");
+            }
+        }
+    }, [assetType, layers, readImageData, setLayers, setSelectedLayerId, showError]);
+
+    // Ajouter des images à la composition de fond existante
+    const appendBackgroundFiles = useCallback(async (files: FileList | File[]) => {
+        const fileArr = Array.from(files);
+        if (fileArr.length === 0) return;
+        const { w, h } = DIMENSIONS[assetType];
+
+        try {
+            const newLoaded: LoadedImageInfo[] = await Promise.all(fileArr.map(f => readImageData(f)));
+            const existingBgs = layers.filter(l => l.role === 'background');
+            const totalCount = existingBgs.length + newLoaded.length;
+
+            const layoutType = autoSelectBestLayout(assetType, totalCount);
+            const boxes = calculateCompositionLayout(layoutType, totalCount, w, h, 0);
+
+            // Mettre à jour les calques de fond existants avec les nouvelles dimensions
+            const updatedExistingBgs = existingBgs.map((l, i) => ({
+                ...l,
+                x: boxes[i]?.x ?? l.x,
+                y: boxes[i]?.y ?? l.y,
+                width: boxes[i]?.width ?? l.width,
+                height: boxes[i]?.height ?? l.height,
+            }));
+
+            // Créer les nouveaux calques de fond
+            const createdBgs: Layer[] = newLoaded.map((img, i) => {
+                const boxIndex = existingBgs.length + i;
+                return {
+                    id: Math.random().toString(36).substr(2, 9),
+                    role: 'background',
+                    type: 'image',
+                    content: img.url,
+                    x: boxes[boxIndex]?.x ?? 0,
+                    y: boxes[boxIndex]?.y ?? 0,
+                    width: boxes[boxIndex]?.width ?? w,
+                    height: boxes[boxIndex]?.height ?? h,
+                    zIndex: boxIndex,
+                    rotation: 0,
+                    imageNaturalWidth: img.naturalWidth,
+                    imageNaturalHeight: img.naturalHeight,
+                    imageOffsetX: 50,
+                    imageOffsetY: 50,
+                    imageScale: 100
+                };
+            });
+
+            const nonBgLayers = layers.filter(l => l.role !== 'background');
+            setLayers([...updatedExistingBgs, ...createdBgs, ...nonBgLayers]);
+            if (createdBgs[0]) {
+                setSelectedLayerId(createdBgs[0].id);
+            }
+        } catch (err: any) {
+            showError(err.message || "Erreur lors de l'ajout d'images au fond.");
+        }
+    }, [assetType, layers, readImageData, setLayers, setSelectedLayerId, showError]);
+
+    // Remplacer une image spécifique de la composition
+    const replaceBackgroundImageFile = useCallback(async (layerId: string, file: File) => {
+        try {
+            const { url, naturalWidth, naturalHeight } = await readImageData(file);
+            setLayers(prev => prev.map(l => l.id === layerId ? {
+                ...l,
+                content: url,
+                imageNaturalWidth: naturalWidth,
+                imageNaturalHeight: naturalHeight,
+            } : l));
+        } catch (err: any) {
+            showError(err.message || "Erreur lors du remplacement de l'image.");
+        }
+    }, [readImageData, setLayers, showError]);
+
+    // Supprimer une image de la composition et réajuster la grille restante
+    const removeBackgroundImage = useCallback((layerId: string) => {
+        const { w, h } = DIMENSIONS[assetType];
+        setLayers(prev => {
+            const remainingBgs = prev.filter(l => l.role === 'background' && l.id !== layerId);
+            if (remainingBgs.length === 0) {
+                return prev.filter(l => l.id !== layerId);
+            }
+
+            const layoutType = autoSelectBestLayout(assetType, remainingBgs.length);
+            const boxes = calculateCompositionLayout(layoutType, remainingBgs.length, w, h, 0);
+
+            let bgIdx = 0;
+            const updatedBgs = remainingBgs.map((l, i) => ({
+                ...l,
+                x: boxes[i]?.x ?? l.x,
+                y: boxes[i]?.y ?? l.y,
+                width: boxes[i]?.width ?? l.width,
+                height: boxes[i]?.height ?? l.height,
+            }));
+
+            const nonBgs = prev.filter(l => l.role !== 'background');
+            return [...updatedBgs, ...nonBgs];
+        });
+        setSelectedLayerId(null);
+    }, [assetType, setLayers, setSelectedLayerId]);
 
     return {
         handleExportImage,
@@ -410,5 +578,8 @@ export const useProject = (
         handleFileUpload,
         handleBatchExport,
         captureImage,
+        appendBackgroundFiles,
+        replaceBackgroundImageFile,
+        removeBackgroundImage,
     };
 };

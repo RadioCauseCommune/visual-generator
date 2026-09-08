@@ -26,6 +26,7 @@ import RssImporter from './components/Editor/RssImporter';
 import { RssEpisode } from './services/rssService';
 import GreetingsGenerator from './components/Greetings/GreetingsGenerator';
 import { CarouselStudio } from './components/Carousel/CarouselStudio';
+import Manuel from './components/UI/Manuel';
 import { ViewMode } from './components/UI/Header';
 import InstagramModeration from './components/UI/InstagramModeration';
 
@@ -50,7 +51,10 @@ const App: React.FC = () => {
     activeGuides, setActiveGuides,
     applyDefaultTemplate, syncLayersWithMeta, addOptionalLayer,
     updateLayer, moveLayer, applyTemplate, adaptLayersToFormat,
-    removeLayer, duplicateLayer
+    removeLayer, duplicateLayer,
+    compositionLayout, setCompositionLayout,
+    compositionGap, setCompositionGap,
+    applyCompositionLayout, reorderBackgroundLayers
   } = useLayers(assetType, meta);
 
   const {
@@ -64,7 +68,8 @@ const App: React.FC = () => {
 
   const {
     handleExportImage, handleExportSvg, handleExportProject, handleImportProject,
-    handleFileUpload, handleBatchExport: runBatchExport, captureImage
+    handleFileUpload, handleBatchExport: runBatchExport, captureImage,
+    appendBackgroundFiles, replaceBackgroundImageFile, removeBackgroundImage
   } = useProject(
     assetType, layers, meta,
     setAssetType, setLayers, setMeta, setSelectedLayerId, showError
@@ -353,7 +358,9 @@ const App: React.FC = () => {
         />
 
         <div className="flex flex-1 overflow-hidden">
-          {viewMode === 'studio' ? (
+          {viewMode === 'manuel' ? (
+            <Manuel />
+          ) : viewMode === 'studio' ? (
             <>
               <Sidebar
                 assetType={assetType}
@@ -378,6 +385,15 @@ const App: React.FC = () => {
                 setAiParams={setAiParams}
                 handleAiGenerate={handleAiGenerate}
                 handleFileUpload={handleFileUpload}
+                appendBackgroundFiles={appendBackgroundFiles}
+                replaceBackgroundImageFile={replaceBackgroundImageFile}
+                removeBackgroundImage={removeBackgroundImage}
+                compositionLayout={compositionLayout}
+                setCompositionLayout={setCompositionLayout}
+                compositionGap={compositionGap}
+                setCompositionGap={setCompositionGap}
+                applyCompositionLayout={applyCompositionLayout}
+                reorderBackgroundLayers={reorderBackgroundLayers}
                 applyTemplate={applyTemplate}
                 onRssImport={handleRssImport}
                 user={user}
@@ -406,6 +422,8 @@ const App: React.FC = () => {
                 moveLayer={moveLayer}
                 layers={layers}
                 onOpenInpainting={handleOpenInpainting}
+                replaceBackgroundImageFile={replaceBackgroundImageFile}
+                removeBackgroundImage={removeBackgroundImage}
               />
             </>
           ) : viewMode === 'carousels' ? (

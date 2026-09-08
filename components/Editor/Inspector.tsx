@@ -14,6 +14,8 @@ interface InspectorProps {
     moveLayer: (direction: 'up' | 'down') => void;
     layers: Layer[];
     onOpenInpainting?: (layer: Layer) => void;
+    replaceBackgroundImageFile?: (layerId: string, file: File) => void;
+    removeBackgroundImage?: (layerId: string) => void;
 }
 
 const Inspector: React.FC<InspectorProps> = ({
@@ -24,9 +26,13 @@ const Inspector: React.FC<InspectorProps> = ({
     setSelectedLayerId,
     moveLayer,
     layers,
-    onOpenInpainting
+    onOpenInpainting,
+    replaceBackgroundImageFile,
+    removeBackgroundImage
 }) => {
     const selectedLayerId = selectedLayer?.id || null;
+    const bgLayers = layers.filter(l => l.role === 'background' && l.type === 'image');
+    const bgIndex = selectedLayer ? bgLayers.findIndex(l => l.id === selectedLayer.id) : -1;
 
     return (
         <aside className="w-72 bg-white neo-border border-t-0 border-b-0 border-r-0 p-4 space-y-6 overflow-y-auto shadow-inner">
@@ -38,7 +44,9 @@ const Inspector: React.FC<InspectorProps> = ({
             {selectedLayer ? (
                 <div className="space-y-6 animate-in fade-in duration-300">
                     <div className="p-3 bg-gray-50 neo-border-fine text-center uppercase font-black text-xs">
-                        Élément: {selectedLayer.role.replace('_', ' ')}
+                        {selectedLayer.role === 'background' && bgLayers.length > 1
+                            ? `Fond #${bgIndex + 1} / ${bgLayers.length} (Composition)`
+                            : `Élément: ${selectedLayer.role.replace('_', ' ')}`}
                     </div>
 
                     {selectedLayer.type === 'text' && (
@@ -410,7 +418,61 @@ const Inspector: React.FC<InspectorProps> = ({
                     )}
 
                     {selectedLayer.type === 'image' && selectedLayer.role === 'background' && (
-                        <>
+                        <div className="space-y-4">
+                            {/* Actions spécifiques pour composition de fond */}
+                            <div className="space-y-2">
+                                <label className="block w-full bg-white neo-border-fine p-2 font-bold uppercase text-[10px] cursor-pointer text-center neo-hover neo-active">
+                                    🔄 Remplacer cette image
+                                    <input
+                                        type="file"
+                                        hidden
+                                        onChange={e => {
+                                            const file = e.target.files?.[0];
+                                            if (file && replaceBackgroundImageFile) {
+                                                replaceBackgroundImageFile(selectedLayer.id, file);
+                                            }
+                                            e.target.value = '';
+                                        }}
+                                        accept="image/*"
+                                    />
+                                </label>
+
+                                {bgLayers.length > 1 && (
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <button
+                                            onClick={() => {
+                                                const { w, h } = DIMENSIONS[assetType];
+                                                updateLayer(selectedLayerId as string, {
+                                                    x: 0,
+                                                    y: 0,
+                                                    width: w,
+                                                    height: h,
+                                                    zIndex: 0
+                                                });
+                                            }}
+                                            className="neo-border-fine bg-white font-black py-1.5 text-[9px] uppercase hover:bg-gray-100 neo-active"
+                                            title="Étendre cette image sur tout le canevas"
+                                        >
+                                            ⛶ Plein Écran
+                                        </button>
+
+                                        <button
+                                            onClick={() => {
+                                                if (removeBackgroundImage) {
+                                                    removeBackgroundImage(selectedLayer.id);
+                                                } else {
+                                                    setLayers(prev => prev.filter(l => l.id !== selectedLayer.id));
+                                                }
+                                            }}
+                                            className="neo-border-fine bg-red-50 text-red-600 font-black py-1.5 text-[9px] uppercase hover:bg-red-100 neo-active"
+                                            title="Retirer cette image de la composition"
+                                        >
+                                            ✕ Retirer
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+
                             <div>
                                 <label className="text-[10px] font-black uppercase mb-1 block">Couleur de l'overlay</label>
                                 <div className="grid grid-cols-5 gap-1">
@@ -444,7 +506,7 @@ const Inspector: React.FC<InspectorProps> = ({
                                     />
                                 </div>
                             )}
-                        </>
+                        </div>
                     )}
 
                     {selectedLayer.type === 'gradient' && (

@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { AssetType, Layer, LayerRole, AiStyleType, AiModelType, AiParameters, isInstagramAsset, isLinkedInAsset } from '../../types';
+import { AssetType, Layer, LayerRole, AiStyleType, AiModelType, AiParameters, CompositionLayoutType, isInstagramAsset, isLinkedInAsset } from '../../types';
 import { DIMENSIONS, LOGO_OPTIONS, COLORS, SOCIAL_ICONS } from '../../constants';
 import { AI_STYLES } from '../../services/aiService';
 import { getModelById } from '../../services/aiModels';
@@ -10,6 +10,7 @@ import RssImporter from './RssImporter';
 import { RssEpisode } from '../../services/rssService';
 import PublishPanel from '../UI/PublishPanel';
 import PublicationHistory from '../UI/PublicationHistory';
+import { getAvailablePresets } from '../../utils/compositionLayouts';
 
 interface SidebarProps {
     assetType: AssetType;
@@ -39,6 +40,17 @@ interface SidebarProps {
 
     // File props
     handleFileUpload: (e: React.ChangeEvent<HTMLInputElement>, role: LayerRole) => void;
+    appendBackgroundFiles?: (files: FileList | File[]) => void;
+    replaceBackgroundImageFile?: (layerId: string, file: File) => void;
+    removeBackgroundImage?: (layerId: string) => void;
+
+    // Composition props
+    compositionLayout?: CompositionLayoutType;
+    setCompositionLayout?: (layout: CompositionLayoutType) => void;
+    compositionGap?: number;
+    setCompositionGap?: (gap: number) => void;
+    applyCompositionLayout?: (layout: CompositionLayoutType, gap?: number) => void;
+    reorderBackgroundLayers?: (fromIndex: number, toIndex: number) => void;
 
     // RSS props
     onRssImport: (episode: RssEpisode) => void;
@@ -65,6 +77,15 @@ const Sidebar: React.FC<SidebarProps> = ({
     aiParams, setAiParams,
     handleAiGenerate,
     handleFileUpload,
+    appendBackgroundFiles,
+    replaceBackgroundImageFile,
+    removeBackgroundImage,
+    compositionLayout = 'auto',
+    setCompositionLayout,
+    compositionGap = 0,
+    setCompositionGap,
+    applyCompositionLayout,
+    reorderBackgroundLayers,
     applyTemplate,
     onRssImport,
     user,
@@ -310,12 +331,52 @@ const Sidebar: React.FC<SidebarProps> = ({
                 </button>
             </section>
 
-            <section className="space-y-3">
-                <h3 className="font-syne font-black text-lg uppercase underline decoration-[#0047FF] decoration-4">4. Visuels</h3>
+            <section className="space-y-4">
+                <div className="flex items-center justify-between">
+                    <h3 className="font-syne font-black text-lg uppercase underline decoration-[#0047FF] decoration-4">4. Visuels & Fond</h3>
+                    {layers.filter(l => l.role === 'background').length > 0 && (
+                        <span className="text-[10px] font-black uppercase px-2 py-0.5 bg-[#0047FF] text-white neo-border-fine">
+                            {layers.filter(l => l.role === 'background').length} Fond{layers.filter(l => l.role === 'background').length > 1 ? 's' : ''}
+                        </span>
+                    )}
+                </div>
+
                 <div className="space-y-2">
-                    <label className="block w-full bg-white neo-border-fine p-2 font-bold uppercase text-xs cursor-pointer text-center neo-hover neo-active">
-                        Changer le Fond <input type="file" hidden onChange={e => handleFileUpload(e, 'background')} accept="image/*" />
-                    </label>
+                    {/* Boutons d'upload */}
+                    <div className="grid grid-cols-2 gap-2">
+                        <label className="block w-full bg-white neo-border-fine p-2 font-bold uppercase text-[11px] cursor-pointer text-center neo-hover neo-active flex flex-col items-center justify-center gap-1 shadow-sm">
+                            <span>🖼️ Changer Fond</span>
+                            <span className="text-[8px] opacity-60 font-black">(1 ou plusieurs)</span>
+                            <input
+                                type="file"
+                                multiple
+                                hidden
+                                onChange={e => {
+                                    handleFileUpload(e, 'background');
+                                    e.target.value = '';
+                                }}
+                                accept="image/*"
+                            />
+                        </label>
+
+                        <label className="block w-full bg-[#FFFAE5] neo-border-fine p-2 font-bold uppercase text-[11px] cursor-pointer text-center neo-hover neo-active flex flex-col items-center justify-center gap-1 shadow-sm">
+                            <span>➕ Ajouter Image</span>
+                            <span className="text-[8px] opacity-60 font-black">(à la composition)</span>
+                            <input
+                                type="file"
+                                multiple
+                                hidden
+                                onChange={e => {
+                                    if (e.target.files && appendBackgroundFiles) {
+                                        appendBackgroundFiles(e.target.files);
+                                    }
+                                    e.target.value = '';
+                                }}
+                                accept="image/*"
+                            />
+                        </label>
+                    </div>
+
                     <button
                         onClick={() => {
                             const { w, h } = DIMENSIONS[assetType];
@@ -330,7 +391,6 @@ const Sidebar: React.FC<SidebarProps> = ({
                                 gradientColor2: COLORS.VIOLET,
                                 gradientDirection: 135,
                             };
-                            // Remplacer le fond existant ou ajouter
                             const existingBg = layers.find(l => l.role === 'background');
                             if (existingBg) {
                                 setLayers(prev => prev.map(l => l.id === existingBg.id ? { ...l, ...newLayer, id: l.id } : l));
@@ -338,14 +398,188 @@ const Sidebar: React.FC<SidebarProps> = ({
                                 setLayers(prev => [newLayer, ...prev]);
                             }
                         }}
-                        className="block w-full bg-gradient-to-r from-[#D20A33] to-[#9D00FF] text-white neo-border-fine p-2 font-bold uppercase text-xs cursor-pointer text-center neo-hover neo-active"
+                        className="block w-full bg-gradient-to-r from-[#D20A33] to-[#9D00FF] text-white neo-border-fine p-2 font-bold uppercase text-xs cursor-pointer text-center neo-hover neo-active shadow-sm"
                     >
                         Ajouter Fond Gradient
                     </button>
 
+                    {/* Gestion des vignettes de fond / composition */}
+                    {layers.filter(l => l.role === 'background' && l.type === 'image').length > 0 && (
+                        <div className="space-y-2 pt-2 border-t border-gray-200">
+                            <div className="flex items-center justify-between">
+                                <p className="text-[10px] font-black uppercase text-gray-500">Images de composition :</p>
+                                <button
+                                    onClick={() => {
+                                        setLayers(prev => prev.filter(l => l.role !== 'background'));
+                                        setSelectedLayerId(null);
+                                    }}
+                                    className="text-[9px] font-black uppercase text-red-600 hover:underline"
+                                    title="Supprimer toutes les images de fond"
+                                >
+                                    Effacer tout
+                                </button>
+                            </div>
+
+                            <div className="flex flex-wrap gap-2">
+                                {layers.filter(l => l.role === 'background' && l.type === 'image').map((bgLayer, idx, arr) => (
+                                    <div key={bgLayer.id} className="relative group">
+                                        <button
+                                            onClick={() => setSelectedLayerId(bgLayer.id)}
+                                            className={`w-14 h-14 neo-border-fine bg-white p-0.5 flex items-center justify-center transition-all overflow-hidden relative ${bgLayer.id === selectedLayerId ? 'ring-2 ring-[#0047FF] scale-105 shadow-md' : 'hover:scale-105'}`}
+                                            title={`Image de fond #${idx + 1} - Cliquer pour inspecter`}
+                                        >
+                                            <img
+                                                src={bgLayer.content}
+                                                alt={`Fond ${idx + 1}`}
+                                                className="w-full h-full object-cover"
+                                            />
+                                            <span className="absolute bottom-0.5 left-0.5 bg-black/80 text-white text-[8px] font-black px-1 leading-none py-0.5">
+                                                #{idx + 1}
+                                            </span>
+                                        </button>
+
+                                        {/* Actions rapides sur la vignette au survol */}
+                                        <div className="absolute -top-2 -right-2 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                                            {/* Remplacer cette image */}
+                                            <label
+                                                className="w-5 h-5 bg-[#A3FF00] neo-border-fine flex items-center justify-center cursor-pointer text-[10px] font-black hover:scale-110 shadow-sm"
+                                                title="Remplacer cette image"
+                                            >
+                                                <span>🔄</span>
+                                                <input
+                                                    type="file"
+                                                    hidden
+                                                    onChange={e => {
+                                                        const file = e.target.files?.[0];
+                                                        if (file && replaceBackgroundImageFile) {
+                                                            replaceBackgroundImageFile(bgLayer.id, file);
+                                                        }
+                                                        e.target.value = '';
+                                                    }}
+                                                    accept="image/*"
+                                                />
+                                            </label>
+
+                                            {/* Supprimer cette image */}
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    if (removeBackgroundImage) {
+                                                        removeBackgroundImage(bgLayer.id);
+                                                    } else {
+                                                        setLayers(prev => prev.filter(l => l.id !== bgLayer.id));
+                                                    }
+                                                }}
+                                                className="w-5 h-5 bg-[#D20A33] text-white neo-border-fine flex items-center justify-center text-[10px] font-black hover:scale-110 shadow-sm"
+                                                title="Supprimer de la composition"
+                                            >
+                                                ✕
+                                            </button>
+                                        </div>
+
+                                        {/* Boutons de réordonnancement (gauche / droite) */}
+                                        {arr.length > 1 && (
+                                            <div className="flex justify-between mt-1 px-0.5">
+                                                {idx > 0 ? (
+                                                    <button
+                                                        onClick={() => reorderBackgroundLayers?.(idx, idx - 1)}
+                                                        className="text-[8px] font-black px-1 bg-gray-100 hover:bg-gray-200 neo-border-fine"
+                                                        title="Déplacer vers la gauche"
+                                                    >
+                                                        ←
+                                                    </button>
+                                                ) : <div className="w-3" />}
+                                                {idx < arr.length - 1 ? (
+                                                    <button
+                                                        onClick={() => reorderBackgroundLayers?.(idx, idx + 1)}
+                                                        className="text-[8px] font-black px-1 bg-gray-100 hover:bg-gray-200 neo-border-fine"
+                                                        title="Déplacer vers la droite"
+                                                    >
+                                                        →
+                                                    </button>
+                                                ) : <div className="w-3" />}
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Presets de grille si >= 2 images de fond */}
+                    {layers.filter(l => l.role === 'background' && l.type === 'image').length >= 2 && (
+                        <div className="space-y-3 pt-2 border-t border-gray-200 bg-[#FFFAE5] p-3 neo-border-fine">
+                            <div className="flex items-center justify-between">
+                                <label className="text-[10px] font-black uppercase block">
+                                    📐 Mises en page ({layers.filter(l => l.role === 'background' && l.type === 'image').length} images)
+                                </label>
+                                <button
+                                    onClick={() => applyCompositionLayout?.(compositionLayout, compositionGap)}
+                                    className="text-[9px] font-black uppercase text-[#0047FF] hover:underline"
+                                    title="Réaligner la grille"
+                                >
+                                    Réaligner
+                                </button>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-1.5">
+                                {getAvailablePresets(assetType, layers.filter(l => l.role === 'background' && l.type === 'image').length).map(preset => (
+                                    <button
+                                        key={preset.id}
+                                        onClick={() => applyCompositionLayout?.(preset.id, compositionGap)}
+                                        className={`p-1.5 text-left neo-border-fine transition-all ${compositionLayout === preset.id
+                                            ? 'bg-black text-white shadow-[2px_2px_0px_0px_rgba(0,71,255,1)]'
+                                            : 'bg-white hover:bg-gray-100 text-black'
+                                            }`}
+                                        title={preset.description}
+                                    >
+                                        <p className="text-[9px] font-black uppercase leading-tight truncate">{preset.label}</p>
+                                        <p className={`text-[7px] truncate ${compositionLayout === preset.id ? 'text-gray-300' : 'text-gray-500'}`}>
+                                            {preset.description}
+                                        </p>
+                                    </button>
+                                ))}
+                            </div>
+
+                            {/* Gouttière / Espacement */}
+                            <div className="space-y-1 pt-1">
+                                <div className="flex justify-between items-center text-[9px] font-black uppercase">
+                                    <span>Espacement (Gouttière)</span>
+                                    <span>{compositionGap}px</span>
+                                </div>
+                                <input
+                                    type="range"
+                                    min="0"
+                                    max="32"
+                                    value={compositionGap}
+                                    onChange={e => {
+                                        const g = parseInt(e.target.value);
+                                        setCompositionGap?.(g);
+                                        applyCompositionLayout?.(compositionLayout, g);
+                                    }}
+                                    className="w-full accent-[#0047FF]"
+                                />
+                                <div className="flex gap-1 justify-between">
+                                    {[0, 4, 8, 16, 24].map(gapVal => (
+                                        <button
+                                            key={gapVal}
+                                            onClick={() => {
+                                                setCompositionGap?.(gapVal);
+                                                applyCompositionLayout?.(compositionLayout, gapVal);
+                                            }}
+                                            className={`flex-1 py-0.5 text-[8px] font-black neo-border-fine ${compositionGap === gapVal ? 'bg-black text-white' : 'bg-white hover:bg-gray-100'}`}
+                                        >
+                                            {gapVal}px
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Liste des photos invités sur le canevas */}
                     {layers.filter(l => l.role === 'guest_photo').length > 0 && (
-                        <div className="space-y-2 pt-2">
+                        <div className="space-y-2 pt-3 border-t border-gray-200">
                             <p className="text-[10px] font-black uppercase text-gray-400">Photos invités :</p>
                             <div className="flex flex-wrap gap-2">
                                 {layers.filter(l => l.role === 'guest_photo').map((photoLayer, idx) => (
