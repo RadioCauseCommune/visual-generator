@@ -28,16 +28,19 @@ export const exportSingleSlide = async (
   link.click();
 };
 
-export const exportCarouselZip = async (
+/**
+ * Rend l'ensemble des diapositives d'un carrousel en DataURLs PNG 1080x1080.
+ * Utile pour l'export ZIP et pour la publication sur Instagram.
+ */
+export const renderCarouselSlidesToDataUrls = async (
   slides: CarouselSlide[],
   mediaName: string,
-  projectTitle: string,
   onProgress?: (current: number, total: number) => void
-): Promise<void> => {
+): Promise<string[]> => {
   await document.fonts.ready;
 
-  const zip = new JSZip();
   const total = slides.length;
+  const results: string[] = [];
 
   // Create temporary offscreen container
   const container = document.createElement('div');
@@ -73,38 +76,54 @@ export const exportCarouselZip = async (
       });
 
       const slideEl = container.firstElementChild as HTMLElement;
-      if (!slideEl) continue;
+      if (!slideEl) {
+        root.unmount();
+        continue;
+      }
 
       const dataUrl = await htmlToImage.toPng(slideEl, {
         width: 1080,
         height: 1080,
         pixelRatio: 1,
-        cacheBust: true
+        cacheBust: true,
       });
 
-      // Extract base64
-      const base64Data = dataUrl.split(',')[1];
-      const slideNum = String(i + 1).padStart(2, '0');
-      zip.file(`slide-${slideNum}.png`, base64Data, { base64: true });
-
+      results.push(dataUrl);
       root.unmount();
     }
-
-    // Generate zip and trigger download
-    const zipBlob = await zip.generateAsync({ type: 'blob' });
-    const slug = projectTitle
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '') || 'carrousel';
-
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(zipBlob);
-    link.download = `carrousel-${slug}.zip`;
-    link.click();
-    URL.revokeObjectURL(link.href);
   } finally {
     if (document.body.contains(container)) {
       document.body.removeChild(container);
     }
   }
+
+  return results;
+};
+
+export const exportCarouselZip = async (
+  slides: CarouselSlide[],
+  mediaName: string,
+  projectTitle: string,
+  onProgress?: (current: number, total: number) => void
+): Promise<void> => {
+  const dataUrls = await renderCarouselSlidesToDataUrls(slides, mediaName, onProgress);
+  const zip = new JSZip();
+
+  dataUrls.forEach((dataUrl, i) => {
+    const base64Data = dataUrl.split(',')[1];
+    const slideNum = String(i + 1).padStart(2, '0');
+    zip.file(`slide-${slideNum}.png`, base64Data, { base64: true });
+  });
+
+  const zipBlob = await zip.generateAsync({ type: 'blob' });
+  const slug = projectTitle
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '') || 'carrousel';
+
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(zipBlob);
+  link.download = `carrousel-${slug}.zip`;
+  link.click();
+  URL.revokeObjectURL(link.href);
 };

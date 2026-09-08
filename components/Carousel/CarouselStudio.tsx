@@ -6,8 +6,31 @@ import { CarouselSlideEditor } from './CarouselSlideEditor';
 import { CarouselList } from './CarouselList';
 import { exportSingleSlide, exportCarouselZip } from './exportUtils';
 import { Download, Archive, FileJson, Upload, Sparkles, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
+import { CarouselPublishModal } from './CarouselPublishModal';
 
-export const CarouselStudio: React.FC = () => {
+const InstagramIcon: React.FC<{ size?: number; className?: string }> = ({ size = 20, className }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <rect width="20" height="20" x="2" y="2" rx="5" ry="5" />
+    <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
+    <line x1="17.5" x2="17.51" y1="6.5" y2="6.5" />
+  </svg>
+);
+
+interface CarouselStudioProps {
+  user?: any;
+}
+
+export const CarouselStudio: React.FC<CarouselStudioProps> = ({ user }) => {
   // Start with the first preset (Économie & FSER) by default
   const [project, setProject] = useState<CarouselProject>(() => {
     const saved = localStorage.getItem('cc_carousel_project_v2');
@@ -24,6 +47,7 @@ export const CarouselStudio: React.FC = () => {
   const [activeIndex, setActiveIndex] = useState(0);
   const [scale, setScale] = useState(0.55);
   const [isExporting, setIsExporting] = useState(false);
+  const [isPublishModalOpen, setIsPublishModalOpen] = useState(false);
   const [exportProgress, setExportProgress] = useState<{ current: number; total: number } | null>(null);
 
   const previewRef = useRef<HTMLDivElement>(null);
@@ -253,6 +277,16 @@ export const CarouselStudio: React.FC = () => {
           >
             <Archive size={14} /> Exporter Carrousel (ZIP)
           </button>
+
+          {/* Publier sur Instagram */}
+          <button
+            type="button"
+            disabled={isExporting}
+            onClick={() => setIsPublishModalOpen(true)}
+            className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-roboto-condensed font-black uppercase bg-[#D20A33] text-white border-[2px] border-[#0F0F0F] shadow-[3px_3px_0px_#0F0F0F] hover:translate-x-[-1px] hover:translate-y-[-1px] active:translate-x-0 active:translate-y-0 disabled:opacity-50 cursor-pointer"
+          >
+            <InstagramIcon size={14} /> Publier sur Instagram
+          </button>
         </div>
       </div>
 
@@ -363,6 +397,16 @@ export const CarouselStudio: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Modal de publication Instagram */}
+      <CarouselPublishModal
+        isOpen={isPublishModalOpen}
+        onClose={() => setIsPublishModalOpen(false)}
+        slides={project.slides}
+        mediaName={project.defaultFooterMedia}
+        projectTitle={project.title}
+        user={user}
+      />
     </div>
   );
 };

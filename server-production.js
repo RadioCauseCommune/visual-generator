@@ -746,6 +746,134 @@ app.post('/api/social/instagram/publish', apiLimiter, async (req, res) => {
   }
 });
 
+// ── Publier un Carrousel sur Instagram ────────────────────────────────────────
+app.post('/api/social/instagram/publish-carousel', apiLimiter, async (req, res) => {
+  try {
+    const userId = await verifyAuthOrReject(req, res);
+    if (!userId) return;
+
+    const { imageUrls, caption, accountId, storagePaths, userTags } = req.body;
+    if (!imageUrls || !Array.isArray(imageUrls) || imageUrls.length < 2 || imageUrls.length > 10) {
+      return res.status(400).json({ error: 'imageUrls doit être un tableau de 2 à 10 images' });
+    }
+
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+
+    // Déterminer quel token utiliser
+    let accessToken;
+    let igAccountId = accountId;
+
+    if (!accountId || accountId === 'default') {
+      // Utiliser le compte par défaut Radio Cause Commune
+      accessToken = process.env.META_DEFAULT_ACCESS_TOKEN;
+      igAccountId = process.env.META_DEFAULT_INSTAGRAM_ACCOUNT_ID;
+      if (!accessToken || !igAccountId) {
+        return res.status(500).json({ error: 'Compte Instagram par défaut non configuré' });
+      }
+    } else {
+      // Récupérer le token chiffré depuis Supabase
+      const tokenRes = await fetch(
+        `${supabaseUrl}/rest/v1/social_tokens?account_id=eq.${accountId}&platform=eq.instagram&select=access_token,token_expires_at`,
+        { headers: { 'Authorization': `Bearer ${supabaseServiceKey}`, 'apikey': supabaseServiceKey } }
+      );
+      const tokens = await tokenRes.json();
+      if (!tokens?.length) return res.status(404).json({ error: 'Compte Instagram non trouvé' });
+
+      // Vérifier l'expiration
+      const tokenRecord = tokens[0];
+      if (tokenRecord.token_expires_at && new Date(tokenRecord.token_expires_at) < new Date()) {
+        return res.status(401).json({ error: 'Token Instagram expiré, veuillez reconnecter votre compte' });
+      }
+
+      accessToken = decryptToken(tokenRecord.access_token);
+    }
+
+    // Étape 1 : Créer les conteneurs individuels pour chaque slide (items du carrousel)
+    const childContainerIds = [];
+    for (let i = 0; i < imageUrls.length; i++) {
+      const itemBody = {
+        image_url: imageUrls[i],
+        is_carousel_item: true,
+        access_token: accessToken,
+      };
+
+      // Si des tags utilisateurs sont fournis (ex: pour le premier slide)
+      if (i === 0 && userTags && Array.isArray(userTags) && userTags.length > 0) {
+        itemBody.user_tags = JSON.stringify(userTags);
+      }
+
+      const itemRes = await fetch(`https://graph.facebook.com/v19.0/${igAccountId}/media`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(itemBody),
+      });
+
+      const itemData = await itemRes.json();
+      if (itemData.error) {
+        return res.status(400).json({
+          error: `Meta API slide #${i + 1}: ${itemData.error.message}`,
+        });
+      }
+      childContainerIds.push(itemData.id);
+    }
+
+    // Étape 2 : Créer le conteneur carrousel parent
+    const carouselBody = {
+      media_type: 'CAROUSEL',
+      children: childContainerIds.join(','),
+      caption: caption || '',
+      access_token: accessToken,
+    };
+
+    const carouselRes = await fetch(`https://graph.facebook.com/v19.0/${igAccountId}/media`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(carouselBody),
+    });
+
+    const carouselData = await carouselRes.json();
+    if (carouselData.error) {
+      return res.status(400).json({ error: `Meta API carrousel parent: ${carouselData.error.message}` });
+    }
+
+    const carouselContainerId = carouselData.id;
+
+    // Étape 3 : Publier le conteneur carrousel
+    const publishRes = await fetch(`https://graph.facebook.com/v19.0/${igAccountId}/media_publish`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        creation_id: carouselContainerId,
+        access_token: accessToken,
+      }),
+    });
+
+    const publishData = await publishRes.json();
+    if (publishData.error) {
+      return res.status(400).json({ error: `Meta API publish carrousel: ${publishData.error.message}` });
+    }
+
+    const postId = publishData.id;
+    const postUrl = `https://www.instagram.com/p/${postId}/`;
+
+    // Nettoyage des images temporaires dans Supabase Storage
+    if (storagePaths && Array.isArray(storagePaths) && supabaseServiceKey && supabaseUrl) {
+      for (const path of storagePaths) {
+        fetch(`${supabaseUrl}/storage/v1/object/publish-temp/${path}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${supabaseServiceKey}`, 'apikey': supabaseServiceKey },
+        }).catch(err => console.warn(`Cleanup storage ${path} échoué:`, err));
+      }
+    }
+
+    res.json({ success: true, postId, postUrl });
+  } catch (error) {
+    console.error('Erreur publication Carrousel Instagram:', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Erreur inconnue' });
+  }
+});
+
 // ── Sauvegarder l'historique de publication ───────────────────────────────────
 app.post('/api/social/publications', apiLimiter, async (req, res) => {
   try {
@@ -974,6 +1102,38 @@ app.get('/api/social/instagram/media/:mediaId/comments', apiLimiter, async (req,
     res.json({ data: commentsData.data });
   } catch (error) {
     console.error('Erreur fetch comments Instagram:', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Erreur inconnue' });
+  }
+});
+
+// ── Poster un commentaire sur un média ─────────────────────────────────────────
+app.post('/api/social/instagram/media/:mediaId/comments', apiLimiter, async (req, res) => {
+  try {
+    const { mediaId } = req.params;
+    const { accountId, message } = req.body;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+
+    if (!message) return res.status(400).json({ error: 'Message requis' });
+
+    const { token } = await resolveInstagramToken(accountId, supabaseServiceKey, supabaseUrl);
+
+    const commentRes = await fetch(
+      `https://graph.facebook.com/v19.0/${mediaId}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, access_token: token })
+      }
+    );
+    const commentData = await commentRes.json();
+
+    if (commentData.error) {
+      return res.status(400).json({ error: `Meta API: ${commentData.error.message}` });
+    }
+
+    res.json({ success: true, id: commentData.id });
+  } catch (error) {
+    console.error('Erreur comment Instagram:', error);
     res.status(500).json({ error: error instanceof Error ? error.message : 'Erreur inconnue' });
   }
 });

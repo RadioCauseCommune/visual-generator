@@ -92,6 +92,63 @@ export async function publishToInstagram(
 }
 
 /**
+ * Upload une série d'images (data URLs base64) vers Supabase Storage.
+ * Appelle onProgress à chaque image uploadée.
+ */
+export async function uploadCarouselImages(
+  imagesDataUrls: string[],
+  projectId?: string,
+  onProgress?: (current: number, total: number) => void
+): Promise<{ imageUrls: string[]; storagePaths: string[] }> {
+  const imageUrls: string[] = [];
+  const storagePaths: string[] = [];
+  const total = imagesDataUrls.length;
+
+  for (let i = 0; i < total; i++) {
+    if (onProgress) onProgress(i + 1, total);
+    const { publicUrl, storagePath } = await uploadImageForPublishing(imagesDataUrls[i], projectId);
+    imageUrls.push(publicUrl);
+    storagePaths.push(storagePath);
+  }
+
+  return { imageUrls, storagePaths };
+}
+
+/**
+ * Publie un carrousel d'images (2 à 10 slides) sur Instagram via le proxy Express.
+ */
+export async function publishCarouselToInstagram(
+  imageUrls: string[],
+  storagePaths: string[],
+  options: PublishOptions
+): Promise<PublishResult> {
+  const captionWithHashtags = [
+    options.caption,
+    options.hashtags.length > 0 ? '\n\n' + options.hashtags.map(h => h.startsWith('#') ? h : `#${h}`).join(' ') : '',
+    options.altText ? `\n\n[Description du carrousel : ${options.altText}]` : '',
+  ].filter(Boolean).join('');
+
+  const res = await fetch('/api/social/instagram/publish-carousel', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      imageUrls,
+      storagePaths,
+      caption: captionWithHashtags,
+      accountId: options.accountId,
+      userTags: options.userTags,
+    }),
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    return { success: false, error: data.error || 'Publication du carrousel échouée' };
+  }
+
+  return { success: true, postId: data.postId, postUrl: data.postUrl };
+}
+
+/**
  * Récupère les comptes Instagram disponibles (compte par défaut + comptes personnels).
  */
 export async function getInstagramAccounts(): Promise<SocialAccount[]> {
@@ -131,6 +188,19 @@ export async function replyToInstagramComment(commentId: string, accountId: stri
   if (!res.ok) {
     const error = await res.json();
     throw new Error(error.error || 'Erreur lors de la réponse au commentaire');
+  }
+  return res.json();
+}
+
+export async function postInstagramComment(mediaId: string, accountId: string, message: string) {
+  const res = await fetch(`/api/social/instagram/media/${mediaId}/comments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ accountId, message })
+  });
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.error || 'Erreur lors de l\'envoi du commentaire');
   }
   return res.json();
 }

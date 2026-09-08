@@ -409,7 +409,7 @@ const App: React.FC = () => {
               />
             </>
           ) : viewMode === 'carousels' ? (
-            <CarouselStudio />
+            <CarouselStudio user={user} />
           ) : (
             <GreetingsGenerator />
           )}
