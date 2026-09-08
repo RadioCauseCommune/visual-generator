@@ -2,7 +2,7 @@
 import React from 'react';
 import { HEADER_LOGO } from '../../constants';
 
-export type ViewMode = 'studio' | 'greetings';
+export type ViewMode = 'studio' | 'greetings' | 'manuel';
 
 interface HeaderProps {
     onImportProject: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -49,6 +49,12 @@ const Header: React.FC<HeaderProps> = ({
                         className={`px-4 py-1 font-roboto-condensed font-black uppercase text-sm transition-all ${viewMode === 'greetings' ? 'bg-[#00F0FF] text-black neo-shadow-sm' : 'text-white hover:bg-white/10'}`}
                     >
                         Vœux
+                    </button>
+                    <button
+                        onClick={() => setViewMode('manuel')}
+                        className={`px-4 py-1 font-roboto-condensed font-black uppercase text-sm transition-all ${viewMode === 'manuel' ? 'bg-[#FFFAE5] text-black neo-shadow-sm' : 'text-white hover:bg-white/10'}`}
+                    >
+                        Manuel
                     </button>
                 </div>
             </div>

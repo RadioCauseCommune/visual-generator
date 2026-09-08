@@ -135,6 +135,19 @@ export async function replyToInstagramComment(commentId: string, accountId: stri
   return res.json();
 }
 
+export async function postInstagramComment(mediaId: string, accountId: string, message: string) {
+  const res = await fetch(`/api/social/instagram/media/${mediaId}/comments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ accountId, message })
+  });
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.error || 'Erreur lors de l\'envoi du commentaire');
+  }
+  return res.json();
+}
+
 export async function toggleHideInstagramComment(commentId: string, accountId: string, hide: boolean) {
   const res = await fetch(`/api/social/instagram/comments/${commentId}/hide`, {
     method: 'POST',

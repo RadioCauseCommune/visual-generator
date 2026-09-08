@@ -978,6 +978,38 @@ app.get('/api/social/instagram/media/:mediaId/comments', apiLimiter, async (req,
   }
 });
 
+// ── Poster un commentaire sur un média ─────────────────────────────────────────
+app.post('/api/social/instagram/media/:mediaId/comments', apiLimiter, async (req, res) => {
+  try {
+    const { mediaId } = req.params;
+    const { accountId, message } = req.body;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+
+    if (!message) return res.status(400).json({ error: 'Message requis' });
+
+    const { token } = await resolveInstagramToken(accountId, supabaseServiceKey, supabaseUrl);
+
+    const commentRes = await fetch(
+      `https://graph.facebook.com/v19.0/${mediaId}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, access_token: token })
+      }
+    );
+    const commentData = await commentRes.json();
+
+    if (commentData.error) {
+      return res.status(400).json({ error: `Meta API: ${commentData.error.message}` });
+    }
+
+    res.json({ success: true, id: commentData.id });
+  } catch (error) {
+    console.error('Erreur comment Instagram:', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Erreur inconnue' });
+  }
+});
+
 // ── Répondre à un commentaire ─────────────────────────────────────────────────
 app.post('/api/social/instagram/comments/:commentId/reply', apiLimiter, async (req, res) => {
   try {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getInstagramAccounts, getInstagramMedia, getInstagramComments, replyToInstagramComment, toggleHideInstagramComment, deleteInstagramComment } from '../../services/instagramService';
+import { getInstagramAccounts, getInstagramMedia, getInstagramComments, replyToInstagramComment, postInstagramComment, toggleHideInstagramComment, deleteInstagramComment } from '../../services/instagramService';
 import { SocialAccount } from '../../types';
 
 interface InstagramModerationProps {
@@ -19,6 +19,7 @@ const InstagramModeration: React.FC<InstagramModerationProps> = ({ onClose, user
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   
   const [replyText, setReplyText] = useState<Record<string, string>>({});
+  const [newCommentText, setNewCommentText] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   // Charger les comptes au montage
@@ -75,6 +76,23 @@ const InstagramModeration: React.FC<InstagramModerationProps> = ({ onClose, user
       const res = await getInstagramComments(selectedMedia.id, selectedAccountId);
       setComments(res.data || []);
       setReplyText(prev => ({ ...prev, [commentId]: '' }));
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handlePostComment = async () => {
+    const text = newCommentText.trim();
+    if (!text || !selectedMedia) return;
+
+    setActionLoadingId('new_comment');
+    try {
+      await postInstagramComment(selectedMedia.id, selectedAccountId, text);
+      const res = await getInstagramComments(selectedMedia.id, selectedAccountId);
+      setComments(res.data || []);
+      setNewCommentText('');
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -249,6 +267,25 @@ const InstagramModeration: React.FC<InstagramModerationProps> = ({ onClose, user
                   <span>Commentaires ({comments.length})</span>
                   <button onClick={() => handleSelectMedia(selectedMedia)} className="text-xs bg-white neo-border-fine px-2 py-1">Rafraîchir</button>
                 </h3>
+                
+                {/* Nouveau commentaire de premier niveau */}
+                <div className="bg-white p-3 neo-border-fine mb-4 flex gap-2">
+                  <input 
+                    type="text" 
+                    value={newCommentText} 
+                    onChange={e => setNewCommentText(e.target.value)}
+                    placeholder="Ajouter un commentaire sur ce post..."
+                    className="flex-1 text-sm px-3 py-2 neo-border-fine focus:outline-none"
+                    disabled={actionLoadingId === 'new_comment'}
+                  />
+                  <button 
+                    onClick={handlePostComment}
+                    disabled={actionLoadingId === 'new_comment' || !newCommentText.trim()}
+                    className="bg-[#D20A33] text-white text-xs font-bold px-4 uppercase disabled:opacity-50"
+                  >
+                    Poster
+                  </button>
+                </div>
                 
                 {isLoadingComments ? (
                   <p className="text-gray-500 italic text-sm">Chargement des commentaires...</p>

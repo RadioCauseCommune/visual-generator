@@ -44,6 +44,34 @@ export enum AssetType {
 
 export type LayerRole = 'title' | 'subtitle' | 'guest_name' | 'date' | 'extra1' | 'extra2' | 'manual' | 'logo' | 'background' | 'guest_photo';
 
+export type CompositionLayoutType =
+  | 'auto'
+  | 'single'
+  | 'split-v'
+  | 'split-h'
+  | 'split-v-60-40'
+  | 'split-v-40-60'
+  | 'grid-1-2'
+  | 'grid-2-1'
+  | 'grid-top-bottom'
+  | 'grid-bottom-top'
+  | 'grid-2x2'
+  | 'grid-1-3'
+  | 'grid-top-3'
+  | 'strips-v'
+  | 'strips-h'
+  | 'custom';
+
+export interface CompositionPreset {
+  id: CompositionLayoutType;
+  label: string;
+  description: string;
+  minImages: number;
+  maxImages?: number;
+  orientation?: 'all' | 'landscape' | 'portrait' | 'square';
+  iconSvg?: string;
+}
+
 export interface Layer {
   id: string;
   role: LayerRole;
